@@ -92,6 +92,16 @@ void cameraRestartWifi();  // nach Änderung des WLAN-Modus neu verbinden
 // Auswahl aus der Weboberfläche. Leere SSID = Vorgabe löschen, wieder automatisch
 bool cameraSelect(const char *ssid, const char *pass, CamProto proto);
 void cameraRequestScan();
+// Für Geräte ohne Weboberfläche (CYD): Zustand und Scan-Liste direkt abfragen
+struct ScanEntry {
+  char ssid[33];
+  int8_t rssi;
+  bool open;
+  CamProto proto;
+};
+const char *cameraStateKey();  // "connected", "connecting", "scanning", "choose", "searching", "restart"
+int cameraNetworks(ScanEntry *out, int max);
+void cameraCurrentSsid(char *out, size_t len);
 // JSON für /cameras in out schreiben, Rückgabe = Länge
 size_t cameraJson(char *out, size_t len);
 const char *cameraSsid();          // verbundene/gewählte Kamera ("" = keine)

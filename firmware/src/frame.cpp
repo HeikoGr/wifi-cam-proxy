@@ -60,6 +60,22 @@ __attribute__((noinline)) void copyToChunk(uint8_t *dst, const uint8_t *src, siz
   }
 }
 
+__attribute__((noinline)) void copyFromChunk(uint8_t *dst, const uint8_t *chunk, size_t off, size_t len) {
+  if (!esp_ptr_in_iram(chunk)) {
+    memcpy(dst, chunk + off, len);
+    return;
+  }
+  const volatile uint32_t *w = (const volatile uint32_t *)chunk;
+  while (len > 0) {
+    uint32_t v = w[off / 4];
+    size_t b = off % 4, k = min(len, 4 - b);
+    memcpy(dst, (const uint8_t *)&v + b, k);
+    dst += k;
+    off += k;
+    len -= k;
+  }
+}
+
 // --- Aktuelles Bild -------------------------------------------------------------
 static std::mutex frameMutex;
 static Frame latestFrame;

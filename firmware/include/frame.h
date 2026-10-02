@@ -22,6 +22,8 @@ static const int MAX_CHUNKS = MAX_FRAME_BYTES / 1024 + 1;
 // Stücke jenseits von FRAME_RESERVE_FROM nur, solange genug Heap übrig bleibt.
 uint8_t *allocChunk(size_t len, size_t frameSoFar);
 void copyToChunk(uint8_t *dst, const uint8_t *src, size_t len);
+// Bytes ab off aus einem Bildstück lesen (IRAM-Stücke wortweise)
+void copyFromChunk(uint8_t *dst, const uint8_t *chunk, size_t off, size_t len);
 
 // Byteweise nutzbarer Heap (ohne den nur wortweise nutzbaren IRAM-Rest)
 unsigned heapFree();

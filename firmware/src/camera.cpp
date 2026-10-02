@@ -103,12 +103,6 @@ static const char *stateKey(CamState s) {
   }
 }
 
-struct ScanEntry {
-  char ssid[33];
-  int8_t rssi;
-  bool open;
-  CamProto proto;
-};
 static const int MAX_SCAN = 16;
 
 static std::mutex camMutex;  // schützt alles bis zur Leerzeile
@@ -495,4 +489,19 @@ size_t cameraJson(char *out, size_t len) {
   }
   add(snprintf(out + o, room(), "]}"));
   return min(o, len ? len - 1 : 0);
+}
+
+const char *cameraStateKey() { return stateKey(state.load()); }
+
+int cameraNetworks(ScanEntry *out, int max) {
+  std::lock_guard<std::mutex> lock(camMutex);
+  int n = min(max, scanCount);
+  memcpy(out, scanList, n * sizeof(ScanEntry));
+  return n;
+}
+
+void cameraCurrentSsid(char *out, size_t len) {
+  std::lock_guard<std::mutex> lock(camMutex);
+  CamState s = state;
+  strlcpy(out, s == CamState::Connected || s == CamState::Connecting ? curSsid : "", len);
 }
