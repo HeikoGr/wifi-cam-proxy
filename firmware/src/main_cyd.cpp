@@ -422,6 +422,9 @@ static void displayTask(void *) {
         drawnFrames++;
         fpsFrames++;
       }
+      // A new frame is almost always ready (camera faster than the display): without
+      // this the task would never block and IDLE0 would trip the task watchdog
+      vTaskDelay(1);
     } else if (!f) {
       char text[64];
       char ssid[33];
