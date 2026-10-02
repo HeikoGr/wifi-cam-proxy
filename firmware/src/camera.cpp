@@ -56,8 +56,8 @@ static const SsidPattern SSID_PATTERNS[] = {
     {"inskam", CamProto::I4season},
     {"Yanxuan", CamProto::I4season},
     {"wifi_camera_", CamProto::I4season},  // MS5 microscope (wifi_camera_MS5_XXXX)
-    {"MAX-VIEW", CamProto::I4season},      // assumption: the MAX-VIEW app is by i4season
-    {"MAXVIEW", CamProto::I4season},
+    {"MAX-VIEW", CamProto::Jhcmd},         // MAXVIEW-xxxx sits at 192.168.29.1 and does not
+    {"MAXVIEW", CamProto::Jhcmd},          // answer i4season (observed), so MaxSee family
     {"Maxsee", CamProto::Jhcmd},           // MaxSee/JoyHonest, camera at 192.168.29.1
     {"JH-", CamProto::Jhcmd},
 };
@@ -128,8 +128,8 @@ const char *protoKey(CamProto p) {
 }
 const char *protoName(CamProto p) {
   switch (p) {
-    case CamProto::I4season: return "i4season (Soulear, MS5, MAX-VIEW)";
-    case CamProto::Jhcmd: return "MaxSee/JoyHonest (JHCMD)";
+    case CamProto::I4season: return "i4season (Soulear, MS5)";
+    case CamProto::Jhcmd: return "MaxSee/JoyHonest/MAX-VIEW (JHCMD)";
     case CamProto::Auto: return "automatic";
     default: return "unknown";
   }
@@ -345,9 +345,11 @@ void cameraOnWifiGotIp() {
     std::lock_guard<std::mutex> lock(camMutex);
     p = curProto;
     if (p == CamProto::Auto) {
-      p = protoForSsid(curSsid);
-      // MaxSee cameras are fixed at 192.168.29.1, otherwise i4season (192.168.1.1)
-      if (p == CamProto::None) p = gw == (uint32_t)IPAddress(192, 168, 29, 1) ? CamProto::Jhcmd : CamProto::I4season;
+      // The address beats the name: MaxSee cameras are fixed at 192.168.29.1, the SSID
+      // patterns partly rest on assumptions. Otherwise by name, else i4season.
+      if (gw == (uint32_t)IPAddress(192, 168, 29, 1)) p = CamProto::Jhcmd;
+      else p = protoForSsid(curSsid);
+      if (p == CamProto::None) p = CamProto::I4season;
     }
     // Update the remembered camera (loop stores it in NVS)
     if (strcmp(prefSsid, curSsid) || strcmp(prefPass, curPass) || prefProto != curProto) {

@@ -1,6 +1,6 @@
 /*
- * i4season protocol (libWifiCamera): Soulear/Hopefox otoscopes, MS5 and probably
- * MAX-VIEW microscopes, Suear, inskam and others.
+ * i4season protocol (libWifiCamera): Soulear/Hopefox otoscopes, MS5 microscopes,
+ * Suear, inskam and others. (The MAX-VIEW microscope speaks JHCMD, see cam_jhcmd.cpp.)
  *
  * Sequence (verified on the Soulear Find T): GetDeviceInfo to UDP 10005, then START
  * to UDP 10006, both from the same socket. JPEG chunks with a 16-byte header (type 1)

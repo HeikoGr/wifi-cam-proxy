@@ -18,8 +18,8 @@
 // --- Protocols ------------------------------------------------------------------
 enum class CamProto : uint8_t {
   None = 0,
-  I4season,  // Soulear/Hopefox otoscopes, MS5/MAX-VIEW microscopes (UDP 10005/10006)
-  Jhcmd,     // MaxSee/JoyHonest microscopes (UDP 20000/10900, "JHCMD")
+  I4season,  // Soulear/Hopefox otoscopes, MS5 microscopes (UDP 10005/10006)
+  Jhcmd,     // MaxSee/JoyHonest/MAX-VIEW microscopes (UDP 20000/10900, "JHCMD")
   Auto = 0xFF,
 };
 const char *protoKey(CamProto p);   // "i4season", "jhcmd", "auto", ""
