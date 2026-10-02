@@ -1,12 +1,12 @@
 #pragma once
 
-// Webseiten der Otoskop-Bridge (nur von main.cpp eingebunden)
+// Webseiten des WiFi-Cam-Proxys (nur von main.cpp eingebunden)
 
 // --- Webseiten ------------------------------------------------------------------
 #define PAGE_STYLE                                                                           \
   "<meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>" \
   "<style>body{background:#111;color:#ddd;font-family:sans-serif;text-align:center;"         \
-  "margin:0 16px}a{color:#8cf}img{max-width:95vw;max-height:80vh;border-radius:50%}"         \
+  "margin:0 16px}a{color:#8cf}img{max-width:95vw;max-height:80vh}img.round{border-radius:50%}"         \
   ".box{max-width:480px;margin:0 auto;text-align:left}"                                      \
   "button,input{font-size:1rem;margin:4px 0}progress{width:100%}"                            \
   "pre{background:#1b1b1b;padding:8px;border-radius:6px;white-space:pre-wrap}"               \
@@ -74,6 +74,10 @@ class Smoother{
 // Dreht ein Element immer den kürzesten Weg
 function rotator(el){let shown=0;return t=>{shown+=norm(t-shown);el.style.transform='rotate('+shown.toFixed(1)+'deg)'}}
 
+// Kamera-Info (/cameras.json): Name, Akku, LED, Lagesensor
+async function camInfo(){try{return await (await fetch('/cameras.json',{cache:'no-store'})).json()}catch(e){return null}}
+function batteryText(c){return c.battery<0?'':'Akku '+c.battery+' %'+(c.charging===1?' (lädt?)':'')}
+
 // Sensorwerte vom Gerät (Server-Sent Events), verbindet sich selbst neu
 function orientation(onSample,onState){
   const go=()=>{
@@ -86,24 +90,28 @@ function orientation(onSample,onState){
 }
 )JS";
 
-static const char INDEX_HTML[] = "<!doctype html><html><head><title>Otoskop</title>" PAGE_STYLE
+static const char INDEX_HTML[] = "<!doctype html><html><head><title>WiFi-Cam</title>" PAGE_STYLE
     R"HTML(<style>#wrap{display:inline-block;transition:transform .12s linear}
 label{margin:0 8px;white-space:nowrap}.ctl{margin:8px 0}
 #ledBtn{font-size:1.2rem;padding:4px 10px;border-radius:6px;border:none;cursor:pointer;background:#333;color:#ddd}
-#ledBtn.on{background:#f5c518;color:#111}</style>
-</head><body><h3>Otoskop Live</h3>
-<div id='wrap'><img src='/stream'></div>
-<div class='ctl'><label><input type='checkbox' id='on'> Lage korrigieren</label>
-<button id='zero'>Aktuelle Lage = oben</button>
-<button id='ledBtn' title='Otoskop-LED ein/aus'>&#128261;</button></div>
+#ledBtn.on{background:#f5c518;color:#111}#cam{color:#888;font-size:.9rem}</style>
+</head><body><h3>Live</h3>
+<p id='choose' class='warn' hidden>Mehrere Kameras gefunden. Bitte unter <a href='/cameras'>Kamera wählen</a> eine auswählen.</p>
+<p id='cam'>…</p>
+<div id='wrap'><img id='img' class='round' src='/stream'></div>
+<div class='ctl'><span id='ori'><label><input type='checkbox' id='on'> Lage korrigieren</label>
+<button id='zero'>Aktuelle Lage = oben</button></span>
+<button id='ledBtn' title='Kamera-LED ein/aus' hidden>&#128261;</button></div>
 <p id='ledMsg' style='font-size:.8rem;color:#888'></p>
-<p><a href='/snapshot' download='otoskop.jpg'>Snapshot speichern</a> &middot;
-<a href='/calibrate'>Kalibrieren</a> &middot; <a href='/update'>Status &amp; Update</a></p>
+<p><a href='/snapshot' download='snapshot.jpg'>Snapshot speichern</a> &middot;
+<a href='/cameras'>Kamera wählen</a> &middot;
+<a href='/calibrate' id='calLink'>Kalibrieren</a> &middot; <a href='/update'>Status &amp; Update</a></p>
 <script src='/app.js'></script><script>
-let cal=Object.assign({},DEFAULT_CAL);
+let cal=Object.assign({},DEFAULT_CAL), hasOri=true;
 const sm=new Smoother(), rot=rotator($('wrap'));
 $('on').checked=store.get('on',false);
-function apply(){rot(imageRotation($('on').checked,sm,cal))}
+// Ohne Lagesensor (z.B. Mikroskop): Bild ungedreht und eckig, Lage-Bedienung aus
+function apply(){rot(hasOri?imageRotation($('on').checked,sm,cal):0)}
 $('on').onchange=()=>{store.set('on',$('on').checked);apply()};
 $('zero').onclick=async()=>{
   if(!sm.have)return;
@@ -111,20 +119,34 @@ $('zero').onclick=async()=>{
   $('on').checked=true;store.set('on',true);apply();
   try{await saveCal(cal)}catch(e){alert('Speichern fehlgeschlagen: '+e.message)}
 };
-// LED-Steuerung (SetLed 0x0A, laut i4season-Protokoll; am Gerät bisher ungetestet)
-let ledOn=store.get('led',false);
+// LED (i4season-Befehl 0x0A). Angezeigt wird der von der Kamera bestätigte Zustand.
+let ledOn=false;
 function applyLed(){$('ledBtn').className=ledOn?'on':'';$('ledBtn').title='LED '+(ledOn?'an – klicken zum Ausschalten':'aus – klicken zum Einschalten')}
 $('ledBtn').onclick=async()=>{
-  ledOn=!ledOn;store.set('led',ledOn);applyLed();
+  const want=!ledOn;
   try{
-    const r=await fetch('/led/'+(ledOn?'1':'0'),{method:'POST'});
-    const t=await r.text();
-    if(!r.ok){$('ledMsg').textContent='Fehler: '+t;ledOn=!ledOn;store.set('led',ledOn);applyLed()}
-    else{$('ledMsg').textContent='LED '+(ledOn?'an':'aus')+(t.includes('ungetestet')?'(Protokoll ungetestet)':'')}
-  }catch(e){$('ledMsg').textContent='Nicht erreichbar';ledOn=!ledOn;store.set('led',ledOn);applyLed()}
+    const r=await fetch('/led/'+(want?'1':'0'),{method:'POST'});
+    $('ledMsg').textContent=r.ok?'LED '+(want?'an':'aus')+' gesendet…':'Fehler: '+await r.text();
+    setTimeout(info,1200);
+  }catch(e){$('ledMsg').textContent='Nicht erreichbar'}
 };
+async function info(){
+  const c=await camInfo(); if(!c)return;
+  $('choose').hidden=c.state!=='choose';
+  const name=c.ssid||(c.state==='choose'?'keine gewählt':'suche Kamera…');
+  $('cam').textContent=[name,c.product,batteryText(c)].filter(Boolean).join(' · ');
+  // Lagesensor: i4season meldet ihn im Videokopf, vor den ersten Videodaten (width 0)
+  // bleibt die Otoskop-Ansicht. MaxSee-Mikroskope haben keinen.
+  if(c.state==='connected'){
+    const ori=c.orientation||(c.proto==='i4season'&&!c.width);
+    if(ori!==hasOri){hasOri=ori;$('img').className=ori?'round':'';$('ori').hidden=!ori;$('calLink').hidden=!ori;apply()}
+  }
+  $('ledBtn').hidden=!c.led_supported;
+  if(c.led>=0&&(c.led===1)!==ledOn){ledOn=c.led===1;applyLed()}
+}
 applyLed();
 apply();
+info();setInterval(info,5000);
 loadCal().then(c=>{cal=c;apply()});
 orientation(a=>{if(sm.add(a,cal))apply()});
 </script></body></html>)HTML";
@@ -145,7 +167,7 @@ input[type=range]{width:100%}
 
 <div class='card'><h4>Live</h4>
 <div class='row'>
- <div id='wrap'><img id='live' alt=''></div>
+ <div id='wrap'><img id='live' class='round' alt=''></div>
  <svg id='dial' width='200' height='200' viewBox='-100 -100 200 200'>
   <circle r='90' fill='none' stroke='#555' stroke-width='2'/>
   <g stroke='#777' stroke-width='2'><line y1='-90' y2='-78'/><line x1='90' x2='78'/><line y1='90' y2='78'/><line x1='-90' x2='-78'/></g>
@@ -369,26 +391,32 @@ loadCal().then(c=>{W=c;render();drawPlot()});
 render();drawPlot();
 </script></body></html>)HTML";
 
-static const char UPDATE_HTML[] = "<!doctype html><html><head><title>Otoskop Update</title>"
+static const char UPDATE_HTML[] = "<!doctype html><html><head><title>WiFi-Cam Update</title>"
     PAGE_STYLE R"(</head><body><div class='box'>
-<h3>Otoskop-Bridge</h3>
+<h3>WiFi-Cam-Proxy</h3>
 <p id='rescue' class='warn' hidden>Notfall-Modus: Ethernet hat keine IP, das WLAN hängt im
-Heimnetz statt am Otoskop. Kommt Ethernet zurück, startet das Gerät von selbst neu.</p>
+Heimnetz bzw. am eigenen Access Point statt an der Kamera. Kommt Ethernet zurück, startet
+das Gerät von selbst neu. <a href='/wifi-setup'>Heim-WLAN einrichten</a></p>
 <pre id='st'>lade Status…</pre>
-<h4>WLAN zum Otoskop</h4>
-<p>Wirkt sofort, das Gerät verbindet sich kurz neu. Vergleiche danach in
-<a href='/log'>/log</a> die Spalte <code>lost</code>.</p>
+<h4>WLAN zur Kamera</h4>
+<p>Wirkt sofort, das Gerät verbindet sich kurz neu. Vergleiche danach oben die
+verlorenen Pakete.</p>
 <p><button class='wm' data-m='bgn'>b/g/n</button> schnell, bündelt Pakete<br>
 <button class='wm' data-m='bg'>b/g</button> jedes Paket einzeln (Standard)<br>
 <button class='wm' data-m='b'>nur b</button> langsam, am robustesten bei schwachem Signal</p>
+<h4>Ethernet</h4>
+<p><button class='eth' data-v='1'>10 Mbit</button> nötig beim ZB-GW03 (WLAN stört sonst den Takt)<br>
+<button class='eth' data-v='0'>100 Mbit</button> für Boards mit eigenem Quarz (WT32-ETH01)</p>
 <h4>Firmware-Update</h4>
-<p>Datei <code>.pio/build/zb-gw03/firmware.bin</code> wählen (nicht <code>firmware.factory.bin</code>).</p>
+<p>Datei <code>.pio/build/&lt;board&gt;/firmware.bin</code> wählen, z.B. <code>zb-gw03</code>
+(nicht <code>firmware.factory.bin</code>).</p>
 <input type='file' id='f' accept='.bin'><br>
 <input type='password' id='pw' placeholder='OTA-Passwort (falls gesetzt)'><br>
 <button id='go'>Flashen</button> <button id='rs'>Neustart</button>
 <progress id='p' max='100' value='0'></progress>
 <p id='msg'></p>
-<p><a href='/'>Zum Live-Bild</a> &middot; <a href='/log'>Protokoll vor dem letzten Neustart</a></p>
+<p><a href='/'>Zum Live-Bild</a> &middot; <a href='/cameras'>Kamera wählen</a> &middot;
+<a href='/wifi-setup'>Heim-WLAN (Notfall)</a></p>
 </div><script>
 const $=id=>document.getElementById(id);
 async function status(){
@@ -398,7 +426,10 @@ async function status(){
     $('st').textContent=
       'Version:   '+s.version+'\nReset:     '+s.reset_reason+' (Boot #'+s.boot_count+')'+'\nModus:     '+s.mode+
       '\nEthernet:  '+(s.eth_ip||('keine IP, '+(!s.eth_begin?'Init fehlgeschlagen':s.eth_link?'Link da':'kein Link')))+
+      (s.eth_speed?', '+s.eth_speed+' Mbit':'')+(s.eth10?' (10 Mbit eingestellt)':'')+
+      (s.ap?'\nSetup-AP:  '+s.ap+' (192.168.4.1)':'')+
       '\nWLAN:      '+(s.wifi_connected?s.wifi_ssid+' ('+s.wifi_rssi+' dBm)':'getrennt')+', Modus '+s.wifi_mode+
+      '\nKamera:    '+(s.cam_proto||'keine')+(s.battery>=0?', Akku '+s.battery+' %':'')+
       '\nVideo:     '+s.fps.toFixed(1)+' fps, '+s.frames+' Bilder, '+s.dropped+' verworfen'+
       '\n           (Speicher '+s.drop_nomem+', zu groß '+s.drop_toobig+', unvollständig '+s.drop_incomplete+
       ', Pakete verloren '+s.packets_lost+', beschädigt angezeigt '+s.damaged+', größtes Bild '+s.max_frame+' B)'+
@@ -437,6 +468,11 @@ $('rs').onclick=async()=>{
   const r=await fetch('/restart',{method:'POST',headers:h});
   $('msg').textContent=r.status+': '+await r.text();if(r.ok)waitReboot();
 };
+document.querySelectorAll('.eth').forEach(b=>b.onclick=async()=>{
+  const h={};if($('pw').value)h['X-OTA-Password']=$('pw').value;
+  const r=await fetch('/eth10/'+b.dataset.v,{method:'POST',headers:h});
+  $('msg').textContent=r.status+': '+await r.text();
+});
 document.querySelectorAll('.wm').forEach(b=>b.onclick=async()=>{
   const h={};if($('pw').value)h['X-OTA-Password']=$('pw').value;
   const r=await fetch('/wifi/'+b.dataset.m,{method:'POST',headers:h});
@@ -445,3 +481,113 @@ document.querySelectorAll('.wm').forEach(b=>b.onclick=async()=>{
 status();setInterval(status,3000);
 </script></body></html>)";
 
+// Kamera wählen: erkannte Kameras (SSID-Muster) und alle anderen Netze aus dem Scan
+static const char CAMERAS_HTML[] = "<!doctype html><html><head><title>Kamera wählen</title>" PAGE_STYLE
+    R"HTML(<style>table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #333;padding:4px 6px;text-align:left}
+.cur{color:#6c6}.dim{color:#777}select,input[type=password]{font-size:1rem}</style>
+</head><body><div class='box'>
+<h3>Kamera wählen</h3>
+<pre id='st'>lade…</pre>
+<p>Erkannt werden Kameras am WLAN-Namen. Die gewählte Kamera merkt sich das Gerät und
+verbindet sich beim Start wieder mit ihr. Ist sie aus, nimmt es eine andere erkannte
+Kamera, wenn genau eine in Reichweite ist.</p>
+<p><button id='scan'>Neu suchen</button> <button id='forget'>Auswahl löschen (automatisch)</button></p>
+<p class='dim'>Suchen bei laufendem Bild lässt es kurz stocken.</p>
+<h4>Erkannte Kameras</h4><table id='rec'></table>
+<h4>Andere Netze</h4>
+<p class='dim'>Unbekannte Kamera? Hier mit Protokoll „automatisch“ probieren (192.168.29.1 →
+MaxSee, sonst i4season).</p>
+<table id='oth'></table>
+<p>Protokoll <select id='proto'><option value='auto'>automatisch</option>
+<option value='i4season'>i4season (Soulear, MS5, MAX-VIEW)</option>
+<option value='jhcmd'>MaxSee/JoyHonest (JHCMD)</option></select></p>
+<p><input type='password' id='wpw' placeholder='WLAN-Passwort der Kamera (meist leer)'><br>
+<input type='password' id='pw' placeholder='OTA-Passwort (falls gesetzt)'></p>
+<p id='msg'></p>
+<p><a href='/'>Zum Live-Bild</a> &middot; <a href='/update'>Status &amp; Update</a></p>
+</div><script src='/app.js'></script><script>
+const STATE={connected:'verbunden',connecting:'verbinde…',scanning:'suche…',choose:'mehrere gefunden, bitte wählen',searching:'keine Kamera gefunden, suche weiter',off:'WLAN aus (Debug-Schalter)'};
+const esc=t=>String(t).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
+function row(n,c){
+  const cur=n.ssid===c.ssid&&c.state==='connected';
+  return '<tr><td class='+(cur?'cur':'')+'>'+esc(n.ssid)+(n.ssid===c.preferred?' ★':'')+'</td><td>'+n.rssi+' dBm</td><td>'+
+    (n.open?'offen':'Passwort')+'</td><td>'+(n.proto||'–')+'</td><td>'+
+    (cur?'aktiv':'<button data-s="'+esc(n.ssid)+'">Verbinden</button>')+'</td></tr>';
+}
+async function load(){
+  const c=await camInfo();
+  if(!c){$('st').textContent='nicht erreichbar';return}
+  $('st').textContent='Zustand:  '+(STATE[c.state]||c.state)+
+    '\nKamera:   '+(c.ssid||'–')+(c.proto?' ('+c.proto+')':'')+
+    '\nGerät:    '+([c.vendor,c.product,c.firmware].filter(Boolean).join(' ')||'–')+
+    (c.width?'\nBild:     '+c.width+'×'+c.height+' (laut Kamera)':'')+
+    (c.battery>=0?'\nAkku:     '+c.battery+' %':'')+
+    '\nGemerkt:  '+(c.preferred||'– (automatisch)')+
+    '\nScan:     '+(c.scan_age_s<0?'noch keiner':'vor '+c.scan_age_s+' s');
+  const rec=c.networks.filter(n=>n.proto), oth=c.networks.filter(n=>!n.proto);
+  $('rec').innerHTML=rec.length?rec.map(n=>row(n,c)).join(''):'<tr><td class=dim>keine</td></tr>';
+  $('oth').innerHTML=oth.map(n=>row(n,c)).join('');
+  document.querySelectorAll('button[data-s]').forEach(b=>b.onclick=()=>select(b.dataset.s));
+}
+async function post(url,body){
+  const h={'Content-Type':'application/x-www-form-urlencoded'};if($('pw').value)h['X-OTA-Password']=$('pw').value;
+  const r=await fetch(url,{method:'POST',headers:h,body});
+  $('msg').textContent=r.status+': '+await r.text();setTimeout(load,1500);
+}
+function select(ssid){post('/cameras/select',new URLSearchParams({ssid,pass:$('wpw').value,proto:$('proto').value}).toString())}
+$('forget').onclick=()=>post('/cameras/select','ssid=');
+$('scan').onclick=async()=>{await fetch('/cameras/scan',{method:'POST'});$('msg').textContent='Suche läuft…';setTimeout(load,4000)};
+load();setInterval(load,4000);
+</script></body></html>)HTML";
+
+// Heim-WLAN für den Notfall-Modus einrichten (auch über den eigenen Access Point)
+static const char WIFI_SETUP_HTML[] = "<!doctype html><html><head><title>WLAN einrichten</title>" PAGE_STYLE
+    R"HTML(<style>table{border-collapse:collapse;width:100%}td{border-bottom:1px solid #333;padding:6px}
+tr.n{cursor:pointer}tr.n:hover{background:#222}.dim{color:#777}input{width:100%;box-sizing:border-box}</style>
+</head><body><div class='box'>
+<h3>Heim-WLAN einrichten</h3>
+<pre id='st'>lade…</pre>
+<p>Hat Ethernet keine Verbindung, wechselt das Gerät in dieses WLAN, damit Weboberfläche
+und Updates erreichbar bleiben. Klappt auch das nicht, öffnet es einen eigenen Access
+Point (<code>WiFi-Cam-…</code>), über den du hierher kommst.</p>
+<h4>Netze in Reichweite</h4>
+<p><button id='scan'>Suchen</button> <span id='scanMsg' class='dim'></span></p>
+<table id='nets'></table>
+<p><input id='ssid' placeholder='WLAN-Name (SSID)' maxlength='32'></p>
+<p><input type='password' id='pass' placeholder='WLAN-Passwort' maxlength='64'></p>
+<p><input type='password' id='pw' placeholder='OTA-Passwort (falls gesetzt)'></p>
+<p><button id='save'>Speichern und verbinden</button> <button id='clear'>Löschen</button></p>
+<p id='msg'></p>
+<p><a href='/'>Zum Live-Bild</a> &middot; <a href='/update'>Status &amp; Update</a></p>
+</div><script>
+const $=id=>document.getElementById(id);
+const esc=t=>String(t).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
+async function load(){
+  try{
+    const s=await (await fetch('/status',{cache:'no-store'})).json();
+    $('st').textContent='Modus:     '+(s.mode==='rescue'?'Notfall':'normal (Ethernet '+(s.eth_ip||'ohne IP')+')')+
+      '\nHeim-WLAN: '+(s.home_ssid||'– nicht eingerichtet')+
+      (s.mode==='rescue'?'\nWLAN:      '+(s.wifi_connected?s.wifi_ssid+', IP '+s.wifi_ip:'nicht verbunden'):'')+
+      (s.ap?'\nSetup-AP:  '+s.ap+' (192.168.4.1)':'');
+  }catch(e){$('st').textContent='nicht erreichbar'}
+  try{
+    const c=await (await fetch('/cameras.json',{cache:'no-store'})).json();
+    $('nets').innerHTML=c.networks.map(n=>'<tr class=n data-s="'+esc(n.ssid)+'"><td>'+esc(n.ssid)+'</td><td>'+n.rssi+
+      ' dBm</td><td>'+(n.open?'offen':'&#128274;')+'</td></tr>').join('')||'<tr><td class=dim>noch nichts gesucht</td></tr>';
+    document.querySelectorAll('tr.n').forEach(r=>r.onclick=()=>{$('ssid').value=r.dataset.s;$('pass').focus()});
+  }catch(e){}
+}
+async function save(ssid,pass){
+  const h={'Content-Type':'application/x-www-form-urlencoded'};if($('pw').value)h['X-OTA-Password']=$('pw').value;
+  try{
+    const r=await fetch('/wifi-setup',{method:'POST',headers:h,body:new URLSearchParams({ssid,pass}).toString()});
+    $('msg').textContent=r.status+': '+await r.text();
+  }catch(e){$('msg').textContent='Verbindung weg - das Gerät wechselt evtl. gerade das WLAN.'}
+  setTimeout(load,3000);
+}
+$('save').onclick=()=>save($('ssid').value,$('pass').value);
+$('clear').onclick=()=>save('','');
+$('scan').onclick=async()=>{await fetch('/cameras/scan',{method:'POST'});$('scanMsg').textContent='suche…';
+  setTimeout(()=>{$('scanMsg').textContent='';load()},5000)};
+load();setInterval(load,5000);
+</script></body></html>)HTML";

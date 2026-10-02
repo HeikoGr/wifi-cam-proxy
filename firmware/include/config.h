@@ -4,16 +4,18 @@
 #if __has_include("secrets.h")
 #include "secrets.h"
 #else
-#warning "include/secrets.h fehlt - Notfall-Modus ist deaktiviert"
 #define HOME_WIFI_SSID     ""
 #define HOME_WIFI_PASSWORD ""
 #endif
 
-// --- Otoskop (WLAN) -------------------------------------------------------------
-#define OTOSCOPE_SSID      "Soulear-6b1c9"   // offenes Netz, kein Passwort
-#define OTOSCOPE_IP        "192.168.1.1"
-#define DISCOVERY_PORT     10005             // GetDeviceInfo, muss vor START kommen
-#define VIDEO_CTRL_PORT    10006             // START / OpenVideo
+// --- Kameras (WLAN) -------------------------------------------------------------
+// Die Kamera wird per WLAN-Scan am SSID-Namen erkannt (Muster in src/camera.cpp) und
+// in der Weboberfläche unter /cameras ausgewählt. Die zuletzt verbundene merkt sich
+// das Gerät im NVS und spricht sie beim Start direkt an.
+#define CAM_CONNECT_TIMEOUT_MS 12000         // so lange auf eine Verbindung warten, dann neu suchen
+#define CAM_LOST_RESCAN_MS     15000         // Verbindung so lange weg -> neu suchen (Kamera aus?)
+#define CAM_RESCAN_MS          5000          // keine Kamera gefunden -> so oft neu suchen
+#define CAM_CHOICE_RESCAN_MS   20000         // mehrere gefunden, keine gewählt -> so oft neu suchen
 
 // --- Heimnetz (Ethernet, DHCP) --------------------------------------------------
 #define HOSTNAME           "otoskop"         // -> http://otoskop.local
@@ -23,11 +25,18 @@
 #define OTA_PASSWORD       ""                // leer = Updates ohne Passwort; setzen in secrets.h
 #endif
 
-// --- Notfall-Modus --------------------------------------------------------------
-// Hat Ethernet so lange keine IP, wechselt das WLAN vom Otoskop ins Heim-WLAN,
-// damit Weboberfläche und OTA erreichbar bleiben. Kommt Ethernet zurück, startet
-// das Gerät neu und läuft wieder normal.
-#define RESCUE_TIMEOUT_MS  (30 * 1000)
+// --- Notfall-Modus (src/rescue.cpp) ---------------------------------------------
+// Hat Ethernet so lange keine IP, wechselt das WLAN von der Kamera ins Heim-WLAN,
+// damit Weboberfläche und OTA erreichbar bleiben. Ist keins eingerichtet oder nicht
+// erreichbar, öffnet das Gerät einen eigenen Access Point mit Einrichtungsseite
+// (http://192.168.4.1/wifi-setup). Kommt Ethernet zurück, startet das Gerät neu.
+#define RESCUE_TIMEOUT_MS     (30 * 1000)
+#define RESCUE_STA_TIMEOUT_MS (30 * 1000)       // Heim-WLAN so lange versuchen, dann AP
+#define RESCUE_STA_RETRY_MS   (5 * 60 * 1000)   // bei laufendem AP Heim-WLAN erneut versuchen
+#define SETUP_AP_PREFIX       "WiFi-Cam-"       // + letzte 4 Stellen der MAC
+#ifndef SETUP_AP_PASSWORD
+#define SETUP_AP_PASSWORD     "wificam-setup"   // mind. 8 Zeichen, sonst offen; ändern in secrets.h
+#endif
 
 // ================================================================================
 // Board-spezifische Hardware-Konfiguration
@@ -46,8 +55,8 @@
 #define ETH_MDIO_GPIO      18
 #define ETH_POWER_GPIO     16               // -1 bei manchen Varianten; 16 für v1.4
 #define ETH_CLK_MODE_GW    ETH_CLOCK_GPIO0_IN  // externer 50-MHz-Quarz
-#define LED_GREEN_GPIO     2               // blaue LED am Board, active HIGH
-#define LED_RED_GPIO       -1              // kein rotes LED vorhanden -> deaktiviert
+#define LED_GREEN_GPIO     -1              // keine frei nutzbare LED auf dem Board (z.B. 2 für eine externe LED)
+#define LED_RED_GPIO       -1
 #define ZIGBEE_NRST_GPIO   -1              // kein Zigbee-Modul
 #define ETH_10MBIT_DEFAULT false           // 100 Mbit möglich, da externer Takt
 
@@ -80,13 +89,18 @@
 #endif
 
 // --- Video ----------------------------------------------------------------------
-#define CHUNK_HEADER_LEN   16                // 16-Byte-Kopf vor jedem JPEG-Stück
-#define MAX_FRAME_BYTES    (48 * 1024)       // größere Bilder werden verworfen (gemessen bis ~41 KB)
+// Größte Bildgröße. Das Soulear-Otoskop liefert bis ~41 KB (480x480), 720p-Mikroskope
+// (MS5) deutlich mehr. Ohne PSRAM passen zwei solche Bilder kaum in den Speicher:
+// Stücke jenseits von FRAME_RESERVE_FROM werden nur angenommen, solange danach noch
+// FRAME_HEAP_RESERVE Heap frei bleibt (sonst wird das Bild verworfen, "drop_nomem").
+#define MAX_FRAME_BYTES    (96 * 1024)
+#define FRAME_RESERVE_FROM (48 * 1024)       // bis hierhin wie bisher (am Otoskop erprobt)
+#define FRAME_HEAP_RESERVE (40 * 1024)       // für WLAN-Treiber, lwIP und HTTP-Tasks
 #define STALL_TIMEOUT_MS   200               // so lange ohne Daten -> Handshake erneut (normal: alle ~58 ms ein Bild)
 #define HANDSHAKE_RETRY_MS 800               // frühestens so lange nach einem START den nächsten
 // Bilder mit verlorenen Paketen trotzdem anzeigen (1) oder verwerfen (0).
 #define SHOW_DAMAGED_FRAMES 1
-// WLAN-Modus zum Otoskop, falls im NVS nichts gespeichert ist ("bgn", "bg", "b").
+// WLAN-Modus zur Kamera, falls im NVS nichts gespeichert ist ("bgn", "bg", "b").
 #define WIFI_MODE_DEFAULT  "bg"
 // WLAN-Sendeleistung in 0,25 dBm, falls im NVS nichts steht (8..84; 44 = 11 dBm).
 #define WIFI_TX_QDBM_DEFAULT 44

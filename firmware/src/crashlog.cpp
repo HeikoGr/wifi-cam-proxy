@@ -25,8 +25,6 @@ struct CrashInfo {
 };
 RTC_NOINIT_ATTR static CrashInfo crash;
 
-static void crumbsInit();
-
 static void onPanic(arduino_panic_info_t *info, void *) {
   crash.magic = CRASH_MAGIC;
   strlcpy(crash.reason, info->reason ? info->reason : "?", sizeof(crash.reason));
@@ -45,7 +43,6 @@ void crashlogInit() {
   if (r != ESP_RST_PANIC && r != ESP_RST_INT_WDT && r != ESP_RST_TASK_WDT && r != ESP_RST_WDT)
     crash.magic = 0;
   set_arduino_panic_handler(onPanic, nullptr);
-  crumbsInit();
 }
 
 void crashlogFormat(char *out, size_t len) {
@@ -62,71 +59,14 @@ void crashlogFormat(char *out, size_t len) {
     if (*p == '"' || *p == '\\' || (uint8_t)*p < 0x20) *p = ' ';
 }
 
-// --- Protokoll der letzten Ereignisse (überlebt Neustarts) ------------------------
-static const int CRUMB_COUNT = 40;
-static const int CRUMB_LEN = 72;
-struct CrumbRing {
-  uint32_t magic;
-  uint32_t next;
-  uint32_t ms[CRUMB_COUNT];
-  char msg[CRUMB_COUNT][CRUMB_LEN];
-};
-RTC_NOINIT_ATTR static CrumbRing ring;
-static CrumbRing *prevRing = nullptr;  // Kopie aus dem letzten Lauf
-static portMUX_TYPE ringMux = portMUX_INITIALIZER_UNLOCKED;
-
+// --- Ereignisse ------------------------------------------------------------------
+// Nur auf die serielle Konsole: ein Ringpuffer im Heap kostete ~3 KB dauerhaft
+// (Kopie des letzten Laufs) und /log beim Abruf bis zu ~9 KB.
 void crumb(const char *fmt, ...) {
-  char buf[CRUMB_LEN];
+  char buf[96];
   va_list ap;
   va_start(ap, fmt);
   vsnprintf(buf, sizeof(buf), fmt, ap);
   va_end(ap);
-  portENTER_CRITICAL(&ringMux);
-  uint32_t i = ring.next % CRUMB_COUNT;
-  ring.ms[i] = millis();
-  memcpy(ring.msg[i], buf, CRUMB_LEN);
-  ring.next++;
-  portEXIT_CRITICAL(&ringMux);
-}
-
-static void crumbsInit() {
-  if (esp_reset_reason() != ESP_RST_POWERON && ring.magic == CRASH_MAGIC) {
-    prevRing = new (std::nothrow) CrumbRing(ring);
-  }
-  memset(&ring, 0, sizeof(ring));
-  ring.magic = CRASH_MAGIC;
-}
-
-static void appendRing(String &out, CrumbRing *r) {
-  char line[CRUMB_LEN + 16];
-  uint32_t n = min(r->next, (uint32_t)CRUMB_COUNT);
-  for (uint32_t k = 0; k < n; k++) {
-    uint32_t i = (r->next - n + k) % CRUMB_COUNT;
-    r->msg[i][CRUMB_LEN - 1] = 0;
-    snprintf(line, sizeof(line), "%8.3f s  %s\n", r->ms[i] / 1000.0, r->msg[i]);
-    out += line;
-  }
-}
-
-String crashlogText() {
-  String out;
-  char line[320];
-  crashlogFormat(line, sizeof(line));
-  out += "Reset-Grund: ";
-  out += (int)esp_reset_reason();
-  out += "\nAbsturz-Mitschnitt: ";
-  out += line[0] ? line : "(keiner)";
-  out += "\n\nAktueller Lauf (letzte Ereignisse):\n";
-  CrumbRing *now = new (std::nothrow) CrumbRing;
-  if (now) {
-    portENTER_CRITICAL(&ringMux);
-    memcpy(now, &ring, sizeof(ring));
-    portEXIT_CRITICAL(&ringMux);
-    appendRing(out, now);
-    delete now;
-  }
-  out += "\nVor dem letzten Neustart:\n";
-  if (prevRing) appendRing(out, prevRing);
-  else out += "(nichts, z.B. nach Einschalten)\n";
-  return out;
+  Serial.printf("[%lu.%03lu] %s\n", millis() / 1000, millis() % 1000, buf);
 }
