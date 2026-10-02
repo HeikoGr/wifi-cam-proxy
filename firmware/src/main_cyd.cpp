@@ -150,6 +150,7 @@ static uint32_t screenSince = 0;
 static int quarter = -1;              // current rotation of the image
 static int lastW = 0, lastH = 0, lastRot = -1;  // image geometry, for clearing the border
 static uint32_t drawnFrames = 0;
+static std::atomic<uint32_t> drawMsSum{0}, drawMsMax{0};  // decode + SPI time, for [stats]
 static uint32_t lastFrameAt = 0;  // for the "no signal" hint
 static float shownFps = 0;
 static char statusShown[64] = "";
@@ -411,7 +412,11 @@ static void displayTask(void *) {
     bool drew = false;
     if (f && seq != lastSeq) {
       lastSeq = seq;
+      uint32_t t0 = millis();
       if (drawFrame(f)) {
+        uint32_t ms = millis() - t0;
+        drawMsSum += ms;
+        if (ms > drawMsMax) drawMsMax = ms;
         drew = true;
         lastFrameAt = millis();
         drawnFrames++;
@@ -482,14 +487,28 @@ void setup() {
 
 void loop() {
   cameraLoop();
-  static uint32_t lastStats = 0, lastFrames = 0, lastDrawn = 0;
+  static uint32_t lastStats = 0, lastFrames = 0, lastDrawn = 0, lastLost = 0, lastDamaged = 0,
+                  lastIncomplete = 0;
   if (millis() - lastStats >= 5000) {
-    uint32_t total = stats.framesTotal;
+    uint32_t total = stats.framesTotal, drawn = drawnFrames, lost = stats.packetsLost,
+             damaged = stats.framesDamaged, incomplete = stats.dropIncomplete;
     float dt = (millis() - lastStats) / 1000.0f;
-    Serial.printf("[stats] received %.1f fps, shown %.1f fps, heap %u (min %u)\n",
-                  (total - lastFrames) / dt, (drawnFrames - lastDrawn) / dt, heapFree(), heapMin());
+    // Artifacts with "damaged" > 0: Wi-Fi (packet loss). Without: look at draw ms vs.
+    // the frame interval of the camera.
+    Serial.printf("[stats] received %.1f fps, shown %.1f fps | lost pkts %u, damaged %u, incomplete %u, "
+                  "RSSI %d | draw avg %u ms max %u ms | battery %d%%%s | heap %u (min %u)\r\n",
+                  (total - lastFrames) / dt, (drawn - lastDrawn) / dt, lost - lastLost,
+                  damaged - lastDamaged, incomplete - lastIncomplete, (int)WiFi.RSSI(),
+                  drawn > lastDrawn ? (unsigned)(drawMsSum / (drawn - lastDrawn)) : 0u,
+                  (unsigned)drawMsMax, (int)telemetry.battery, telemetry.charging == 1 ? " (charging?)" : "",
+                  heapFree(), heapMin());
+    drawMsSum = 0;
+    drawMsMax = 0;
     lastFrames = total;
-    lastDrawn = drawnFrames;
+    lastDrawn = drawn;
+    lastLost = lost;
+    lastDamaged = damaged;
+    lastIncomplete = incomplete;
     lastStats = millis();
   }
   delay(10);
