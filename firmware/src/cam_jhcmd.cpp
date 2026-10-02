@@ -335,10 +335,21 @@ class JhcmdSession : public CamSession {
     l.len = n;
     l.count = 1;
     memcpy(l.data, pkt, k);
+    // short messages in one line, long ones (the 105-byte info reply) in lines of 32 bytes
     char hex[32 * 3 + 1];
-    for (int i = 0; i < k; i++) snprintf(hex + i * 3, 4, "%02x ", pkt[i]);
-    hex[k * 3] = 0;
-    diagLog("[jhcmd] %lu ms: message %d bytes from port %u: %s", millis(), n, ntohs(from.sin_port), hex);
+    if (k <= 24) {
+      for (int i = 0; i < k; i++) snprintf(hex + i * 3, 4, "%02x ", pkt[i]);
+      hex[k * 3] = 0;
+      diagLog("[jhcmd] %lu ms: message %d bytes from port %u: %s", millis(), n, ntohs(from.sin_port), hex);
+      return;
+    }
+    diagLog("[jhcmd] %lu ms: message %d bytes from port %u:", millis(), n, ntohs(from.sin_port));
+    for (int o = 0; o < k; o += 32) {
+      int m = min(32, k - o);
+      for (int i = 0; i < m; i++) snprintf(hex + i * 3, 4, "%02x ", pkt[o + i]);
+      hex[m * 3] = 0;
+      diagLog("[jhcmd]  +%03d: %s", o, hex);
+    }
   }
 
   // Diagnostics: the first packets of each kind as hex (length, sender port, 24 bytes)
@@ -362,7 +373,7 @@ class JhcmdSession : public CamSession {
   struct Last {
     int len = 0;
     uint32_t count = 0;
-    uint8_t data[32];
+    uint8_t data[128];
   } lastReply_;
   Frame building_;
   uint8_t idxs_[MAX_CHUNKS];  // packet numbers of the chunks in building_, sorted

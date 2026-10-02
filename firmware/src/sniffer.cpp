@@ -10,8 +10,8 @@ void wifiApplyMode();  // main.cpp: Wi-Fi mode towards the camera (b/g by defaul
 
 namespace {
 
-const int MAX_ENTRIES = 256;  // ring: the newest packets win
-const int DATA_BYTES = 48;    // payload bytes kept per packet
+const int MAX_ENTRIES = 128;  // ring: the newest packets win
+const int DATA_BYTES = 112;   // payload bytes kept per packet (the MAX-VIEW info reply has 105)
 const int VIDEO_MIN = 600;    // UDP from the camera at least this big = video (not kept)
 
 struct Entry {
@@ -198,18 +198,15 @@ void sniffStop() {
 bool sniffActive() { return active; }
 
 bool sniffText(void (*put)(void *ctx, const char *line), void *ctx) {
-  char line[400];
+  char line[700];
   if (!ring) {
     put(ctx, "No recording yet. Start with POST /sniff/start\n");
     return true;
   }
-  Entry *copy = (Entry *)malloc(sizeof(Entry) * MAX_ENTRIES);
-  if (!copy) return false;
   int n, first;
   uint32_t vp, vb;
   uint16_t vport;
   portENTER_CRITICAL(&mux);
-  memcpy(copy, ring, sizeof(Entry) * MAX_ENTRIES);
   n = count;
   first = (head + MAX_ENTRIES - count) % MAX_ENTRIES;
   vp = videoPackets;
@@ -226,7 +223,10 @@ bool sniffText(void (*put)(void *ctx, const char *line), void *ctx) {
            (unsigned)(vb / 1024), vport, apInfo, DATA_BYTES);
   put(ctx, line);
   for (int i = 0; i < n; i++) {
-    const Entry &e = copy[(first + i) % MAX_ENTRIES];
+    Entry e;  // one at a time: no second copy of the whole ring
+    portENTER_CRITICAL(&mux);
+    e = ring[(first + i) % MAX_ENTRIES];
+    portEXIT_CRITICAL(&mux);
     char kind[24];
     if (e.proto == 17) strlcpy(kind, "UDP", sizeof(kind));
     else if (e.proto == 6)
@@ -237,9 +237,9 @@ bool sniffText(void (*put)(void *ctx, const char *line), void *ctx) {
                      IPAddress(e.src).toString().c_str(), e.sport);
     o += snprintf(line + o, sizeof(line) - o, "%s:%u  %3u  ", IPAddress(e.dst).toString().c_str(), e.dport, e.len);
     int k = min((int)e.len, DATA_BYTES);
-    for (int b = 0; b < k && o < (int)sizeof(line) - 40; b++) o += snprintf(line + o, sizeof(line) - o, "%02x ", e.data[b]);
+    for (int b = 0; b < k && o < (int)sizeof(line) - 140; b++) o += snprintf(line + o, sizeof(line) - o, "%02x ", e.data[b]);
     o += snprintf(line + o, sizeof(line) - o, " '");
-    for (int b = 0; b < k && o < (int)sizeof(line) - 30; b++)
+    for (int b = 0; b < k && o < (int)sizeof(line) - 100; b++)
       line[o++] = e.data[b] >= 32 && e.data[b] < 127 ? e.data[b] : '.';
     o += snprintf(line + o, sizeof(line) - o, "'");
     if (e.repeats > 1)
@@ -247,6 +247,5 @@ bool sniffText(void (*put)(void *ctx, const char *line), void *ctx) {
     snprintf(line + o, sizeof(line) - o, "\n");
     put(ctx, line);
   }
-  free(copy);
   return true;
 }

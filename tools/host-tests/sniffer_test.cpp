@@ -27,6 +27,18 @@ int main() {
   frame(6, cam, phone, {0x1f, 0x90, 0xc0, 0x01, 0, 0, 0, 1, 0, 0, 0, 2, 0x50, 0x18, 0x10, 0, 0, 0, 0, 0, 'h', 'i'});
   frame(1, phone, cam, {8, 0, 0, 0, 0, 1, 0, 1, 'p', 'i', 'n', 'g'});   // ICMP echo
   frame(17, phone, other, {0, 53, 0, 53, 0, 9, 0, 0, 'x'});              // not the camera
+  // the 105-byte info reply of the MAX-VIEW to the phone: has to be recorded completely
+  {
+    std::vector<uint8_t> reply = {0x4e, 0x20, 0x4e, 0x20, 0, 113, 0, 0};  // UDP 20000 -> 20000, length 8 + 105
+    std::vector<uint8_t> payload(105, 0);
+    memcpy(payload.data(), "JHCMD\x20\x00\x61", 8);
+    memcpy(payload.data() + 24, "YPC320", 6);
+    payload[43] = 0x07;
+    memcpy(payload.data() + 69, "MAXVIEW-", 8);
+    payload[104] = 0xA5;
+    reply.insert(reply.end(), payload.begin(), payload.end());
+    frame(17, cam, phone, reply);
+  }
   std::string text;
   sniffText([](void *t, const char *l) { ((std::string *)t)->append(l); }, &text);
   fputs(text.c_str(), stdout);
@@ -39,6 +51,9 @@ int main() {
       {"TCP AP   192.168.29.1:8080 -> 192.168.29.3:49153    2  68 69", true},  // 2 payload bytes
       {"IP proto 1 192.168.29.3", true},
       {"8.8.8.8", false},                                                   // not the camera
+      {"192.168.29.1:20000 -> 192.168.29.3:20000  105  4a 48 43 4d 44 20 00 61", true},
+      {"4d 41 58 56 49 45 57 2d", true},  // offset 69: still in the recording
+      {"00 a5  'JHCMD", true},             // last byte (offset 104)
   };
   int fails = 0;
   for (auto &c : checks)
