@@ -5,7 +5,7 @@
       "label": "Build (ZB-GW03)",
       "type": "shell",
       "command": "pio run -e zb-gw03",
-      "options": { "cwd": "${workspaceFolder}/firmware" },
+      "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" } },
       "group": { "kind": "build", "isDefault": true },
       "presentation": { "reveal": "always", "panel": "shared", "clear": true },
       "problemMatcher": []
@@ -14,7 +14,7 @@
       "label": "Build (WT32-ETH01)",
       "type": "shell",
       "command": "pio run -e wt32-eth01",
-      "options": { "cwd": "${workspaceFolder}/firmware" },
+      "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" } },
       "group": "build",
       "presentation": { "reveal": "always", "panel": "shared", "clear": true },
       "problemMatcher": []
@@ -23,8 +23,16 @@
       "label": "Flash USB (ZB-GW03)",
       "type": "shell",
       "command": "pio run -e zb-gw03 -t upload",
-      "options": { "cwd": "${workspaceFolder}/firmware" },
+      "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" } },
       "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build-Umgebung einrichten",
+      "type": "shell",
+      "command": "./setup-build-env.sh",
+      "options": { "cwd": "${workspaceFolder}" },
       "presentation": { "reveal": "always", "panel": "shared" },
       "problemMatcher": []
     },
@@ -32,7 +40,7 @@
       "label": "Flash OTA HTTP (otoskop.local)",
       "type": "shell",
       "command": "pio run -e zb-gw03-http -t upload",
-      "options": { "cwd": "${workspaceFolder}/firmware" },
+      "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" } },
       "group": "build",
       "presentation": { "reveal": "always", "panel": "shared" },
       "problemMatcher": []
@@ -41,7 +49,7 @@
       "label": "Flash OTA espota (otoskop.local)",
       "type": "shell",
       "command": "pio run -e zb-gw03-ota -t upload",
-      "options": { "cwd": "${workspaceFolder}/firmware" },
+      "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" } },
       "group": "build",
       "presentation": { "reveal": "always", "panel": "shared" },
       "problemMatcher": []
@@ -50,7 +58,7 @@
       "label": "Serial Monitor",
       "type": "shell",
       "command": "pio device monitor",
-      "options": { "cwd": "${workspaceFolder}/firmware" },
+      "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" } },
       "group": "test",
       "presentation": { "reveal": "always", "panel": "dedicated" },
       "problemMatcher": [],
@@ -60,7 +68,7 @@
       "label": "Clean",
       "type": "shell",
       "command": "pio run -e zb-gw03 -t clean",
-      "options": { "cwd": "${workspaceFolder}/firmware" },
+      "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" } },
       "group": "build",
       "presentation": { "reveal": "always", "panel": "shared" },
       "problemMatcher": []
