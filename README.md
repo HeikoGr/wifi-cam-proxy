@@ -43,11 +43,12 @@ generated test image, not from a real camera.
 
 | Family | Detection (SSID starts with) | Devices | Image | Orientation | Battery | LED | Status |
 |---|---|---|---|---|---|---|---|
-| **i4season** | `Soulear`, `SUEAR`, `i4season`, `inskam`, `Yanxuan`, `wifi_camera_`, `MAX-VIEW`¹ | Hopefox Find T (Soulear app), MS5 microscope, probably MAX-VIEW microscopes | ✅ | ✅ (if present) | ✅² | ✅² | Soulear proven on the device |
-| **MaxSee / JoyHonest** (`JHCMD`) | `Maxsee`, `JH-` | older Wi-Fi microscopes (camera at `192.168.29.1`) | ✅² | – | – | – | implemented from documentation, untested |
+| **i4season** | `Soulear`, `SUEAR`, `i4season`, `inskam`, `Yanxuan`, `wifi_camera_` | Hopefox Find T (Soulear app), MS5 microscope | ✅ | ✅ (if present) | ✅ | ✅² | Soulear proven on the device |
+| **MaxSee / JoyHonest** (`JHCMD`) | `Maxsee`, `JH-`, `MAX-VIEW`/`MAXVIEW`¹ | Wi-Fi microscopes at `192.168.29.1`, e.g. MAX-VIEW (1280×720) | ✅ | – | – | – | MAX-VIEW proven on the ZB-GW03 |
 
-¹ Assumption: the MAX-VIEW app is by i4season (`com.i4season.maxview`). If the Wi-Fi has a different
-name, the camera can still be chosen under `/cameras` with the protocol "automatic".
+¹ Although the MAX-VIEW app is by i4season, the microscope (`MAXVIEW-xxxx`) sits at `192.168.29.1`
+and speaks JHCMD. With the protocol "automatic" the address `192.168.29.1` always selects JHCMD,
+whatever the Wi-Fi is called. Under `/cameras` the protocol can also be chosen per network.
 ² Implemented from the protocol documentation, not yet checked on our own device.
 
 Other families such as EarFairy (RTSP), JEGOAT, Xylla and iTiMO find their Wi-Fi via Bluetooth LE
@@ -56,7 +57,8 @@ or need RTSP. They are not implemented on the ESP32 yet. More on this in
 
 **720p microscopes:** an ESP32 without PSRAM has only a little more than 100 KB of RAM for frames.
 Frames above 48 KB are only accepted while enough memory remains free. Otherwise they are dropped
-and counted as `drop_nomem` under `/status`. At 1280×720 that can happen often.
+and counted as `drop_nomem` under `/status`. At 1280×720 that can happen often. The MAX-VIEW sends
+34–82 KB per frame; on the ZB-GW03 that gave about 3 fps, with the free heap down to ~6 KB.
 
 ## Hardware
 

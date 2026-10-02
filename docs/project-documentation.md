@@ -82,8 +82,9 @@ Source: [egnor/wt32-eth01](https://github.com/egnor/wt32-eth01).
 
 ## 3. Protocol (i4season / libWifiCamera)
 
-The device speaks the **i4season protocol**, which is also used by Wi-Fi microscopes (MS5, probably
-MAX-VIEW; MaxSee on the other hand speaks JHCMD), ear scopes (AiSee, Suear) and other devices of this family.
+The device speaks the **i4season protocol**, which is also used by Wi-Fi microscopes (MS5), ear
+scopes (AiSee, Suear) and other devices of this family. MaxSee microscopes and the MAX-VIEW speak
+JHCMD instead (section 3.4).
 
 ### 3.1 Protocol header (12 bytes, little-endian)
 
@@ -132,6 +133,31 @@ Protocol source: [king-cake/otoscope-windows, docs/i4season-protocol.md](https:/
 
 Roll angle = `atan2(x, y)`. The axes have small offsets (x ≈ −7, y ≈ +6).
 The camera is mounted rotated by 90° in the probe → frames are always rotated by −90°.
+
+### 3.4 JHCMD (MaxSee, MAX-VIEW)
+
+Camera fixed at `192.168.29.1`. Commands to UDP 20000 (`JHCMD` + 2 bytes: `10 00`, `20 00`
+init, `d0 01` start/heartbeat, `d0 02` stop), video arrives at the fixed port 10900.
+Observed on a MAX-VIEW microscope (`MAXVIEW-7762`, 2026-10-01) with a raw capture
+(`/camdiag/raw`):
+
+| Byte | Meaning |
+|---|---|
+| 0–1 | per czietz the frame number (LE); on the MAX-VIEW **always** `01 00` |
+| 2 | number of packets of this frame (seen: 12, 20, 24) |
+| 3 | packet number within the frame |
+| 4–7 | constant `02 14 00 00` |
+| payload of packet 0 | 16-byte block (`3a 01 44 20 04 00 d5 6e …`), then the JPEG (`FF D8 FF`, comment "GPEncoder") |
+
+- 1280×720 JPEG, 34–82 KB per frame, 1450-byte packets (1442 bytes payload), `FF D9` in the
+  last packet. About 3 fps on the ZB-GW03 (RSSI −75 to −79 dBm).
+- **Packets arrive out of order** (e.g. 3 before 2). The firmware puts every packet at its place
+  by packet number (`Frame::insert`); a frame is complete when all packets up to the one with
+  `FF D9` are there. Byte 2 is only used to count losses. Checked on the host with the captured
+  packets, in order and shuffled: the result is byte-identical to the original JPEG.
+- The heartbeat is counted by the firmware itself (every 50 frames), because the frame number
+  does not change.
+- The camera does not answer on the command socket. Battery, LED and orientation are not known.
 
 ---
 
@@ -234,6 +260,8 @@ Serial console (115200 baud) every 5 s:
 | `/update` | GET | status, Wi-Fi mode, Ethernet speed, firmware update, restart |
 | `/update` | POST | firmware update (binary, `application/octet-stream`) |
 | `/status` | GET | all counters as JSON |
+| `/camdiag` | GET | first packets of the current camera session as hex (text) |
+| `/camdiag/raw` | GET | raw capture of one whole frame (all UDP packets with headers): first call requests it (202), the next one fetches it |
 | `/wifi-setup` | GET/POST | home Wi-Fi for rescue mode (form `ssid`, `pass`) |
 | `/eth10/<0\|1>` | POST | Ethernet 10 Mbit on/off |
 | `/orientation` | GET | server-sent events: orientation sensor ~17×/s |
@@ -404,6 +432,8 @@ The camera is idle in rescue mode because Wi-Fi is then needed for reachability.
 |---|---|
 | `/status` | JSON: all counters since start, `last_crash` = backtrace of the last crash |
 | serial console | events (`/log` and `/sensor` were removed to save ~6 KB heap) |
+| `/camdiag` | camera IP, the first replies and video packets of the session as hex: for unknown cameras |
+| `/camdiag/raw` | one whole frame as received (binary), e.g. to work out a packet format |
 | `stalls_loss` | dropouts after packet loss → weak Wi-Fi signal |
 | `stalls_clean` | dropouts without packet loss → otoscope pauses by itself |
 

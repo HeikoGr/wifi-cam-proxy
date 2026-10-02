@@ -15,6 +15,7 @@ As of 2026-09-30: stable at 17 fps, also with a viewer. Dropouts only occur when
 | `/calibrate` | calibrate orientation: circle recording, quarter turns, zero point, smoothing |
 | `/update` | status, Wi-Fi mode, Ethernet speed, firmware update, restart |
 | `/status` | all counters as JSON |
+| `/camdiag`, `/camdiag/raw` | first packets of the camera session as hex; raw capture of one frame (call twice) |
 | `/wifi-setup` | set up the home Wi-Fi for rescue mode (also via the own access point) |
 
 ![Live view](../docs/screenshots/live.png)
@@ -31,12 +32,12 @@ The firmware looks for cameras with a Wi-Fi scan. The name patterns are in `SSID
 
 ![Camera selection](../docs/screenshots/cameras.png)
 
-Under `/cameras` you can also choose an unknown network. With the protocol "automatic" the rule is: gateway `192.168.29.1` means MaxSee/JHCMD, otherwise i4season is used. A camera password is possible as well.
+Under `/cameras` you can also choose an unknown network. With the protocol "automatic" the rule is: gateway `192.168.29.1` always means MaxSee/JHCMD, otherwise the SSID pattern decides, else i4season. Each network row has its own protocol choice and a "Connect"/"Reconnect" button. A camera password is possible as well.
 
 | Protocol | File | Video | Extras |
 |---|---|---|---|
 | i4season | [src/cam_i4season.cpp](src/cam_i4season.cpp) | GetDeviceInfo :10005, START :10006, 16/28-byte header | orientation sensor (if the header flag is set), battery from devinfo and status push :10007, LED (`0x0A`, payload `11 01 64` / `11 00 00`) |
-| JHCMD (MaxSee) | [src/cam_jhcmd.cpp](src/cam_jhcmd.cpp) | `JHCMD` to :20000, video to the fixed port 10900, 8-byte header | – |
+| JHCMD (MaxSee, MAX-VIEW) | [src/cam_jhcmd.cpp](src/cam_jhcmd.cpp) | `JHCMD` to :20000, video to the fixed port 10900, 8-byte header; packets are sorted by number (they arrive out of order) | – |
 
 Only the session of the active camera occupies RAM, the protocol code lives in flash.
 
