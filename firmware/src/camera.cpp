@@ -172,29 +172,33 @@ void diagCopy(char *out, size_t len) {
   portEXIT_CRITICAL(&diagMux);
 }
 
-const CamProto PROTO_CHOICES[] = {CamProto::Auto, CamProto::I4season, CamProto::Jhcmd};
-const int PROTO_CHOICE_COUNT = sizeof(PROTO_CHOICES) / sizeof(PROTO_CHOICES[0]);
+// --- Protocol table ------------------------------------------------------------------
+// Order = order of the probes with "automatic" (after the one the address or SSID suggests)
+static const CamProtocol *const PROTOCOLS[] = {&PROTOCOL_I4SEASON, &PROTOCOL_JHCMD};
+static const int PROTOCOL_COUNT = sizeof(PROTOCOLS) / sizeof(PROTOCOLS[0]);
+
+const CamProtocol *protocolFor(CamProto id) {
+  for (const CamProtocol *p : PROTOCOLS)
+    if (p->id == id) return p;
+  return nullptr;
+}
+int protoChoiceCount() { return PROTOCOL_COUNT + 1; }
+CamProto protoChoice(int i) { return i > 0 && i <= PROTOCOL_COUNT ? PROTOCOLS[i - 1]->id : CamProto::Auto; }
 
 const char *protoKey(CamProto p) {
-  switch (p) {
-    case CamProto::I4season: return "i4season";
-    case CamProto::Jhcmd: return "jhcmd";
-    case CamProto::Auto: return "auto";
-    default: return "";
-  }
+  if (p == CamProto::Auto) return "auto";
+  const CamProtocol *d = protocolFor(p);
+  return d ? d->key : "";
 }
 const char *protoName(CamProto p) {
-  switch (p) {
-    case CamProto::I4season: return "i4season (Soulear, MS5)";
-    case CamProto::Jhcmd: return "MaxSee/JoyHonest/MAX-VIEW (JHCMD)";
-    case CamProto::Auto: return "automatic";
-    default: return "unknown";
-  }
+  if (p == CamProto::Auto) return "automatic";
+  const CamProtocol *d = protocolFor(p);
+  return d ? d->name : "unknown";
 }
 CamProto protoFromKey(const char *key) {
-  if (!strcmp(key, "i4season")) return CamProto::I4season;
-  if (!strcmp(key, "jhcmd")) return CamProto::Jhcmd;
   if (!strcmp(key, "auto") || !*key) return CamProto::Auto;
+  for (const CamProtocol *p : PROTOCOLS)
+    if (!strcmp(key, p->key)) return p->id;
   return CamProto::None;
 }
 CamProto protoForSsid(const char *ssid) {
@@ -233,9 +237,11 @@ static std::atomic<bool> scanPending{false};
 static std::atomic<bool> autoScan{true};      // see cameraSetAutoScan()
 static std::atomic<bool> paused{false};       // see cameraPause()
 
-// For the video task: active session, recreated via sessionGen on change
-static std::atomic<CamProto> activeProto{CamProto::None};
-static std::atomic<uint32_t> activeIp{0};
+// For the video task: wanted session, recreated via sessionGen on change
+static std::atomic<CamProto> wantProto{CamProto::None};    // None (paused), Auto or a protocol
+static std::atomic<CamProto> guessProto{CamProto::None};   // Auto: by address/SSID, probed first
+static std::atomic<CamProto> sessionProto{CamProto::None}; // what the video task runs
+static std::atomic<uint32_t> activeIp{0};                  // gateway, 0 = none announced
 static std::atomic<uint32_t> sessionGen{0};
 static std::atomic<bool> savePref{false};
 static std::atomic<uint32_t> stateSince{0};
@@ -245,7 +251,7 @@ bool cameraLinkUp() {
   return !rescueMode && !updating && state == CamState::Connected &&
          WiFi.status() == WL_CONNECTED;
 }
-CamProto cameraProto() { return activeProto; }
+CamProto cameraProto() { return sessionProto; }
 
 static void setState(CamState s) {
   if (s == state) return;
@@ -255,6 +261,31 @@ static void setState(CamState s) {
 }
 
 // --- Video task -----------------------------------------------------------------
+// Protocol "automatic": probe the protocols at the camera address, the guess (address
+// 192.168.29.1 -> JHCMD, else SSID pattern, else i4season) first. The first that answers
+// wins; if none does, the guess. Gives up when a new session is wanted meanwhile (gen).
+// how: for the log
+static CamProto detectProtocol(uint32_t ip, uint32_t gen, const char *&how) {
+  CamProto guess = guessProto;
+  const CamProtocol *order[PROTOCOL_COUNT];
+  int n = 0;
+  if (const CamProtocol *g = protocolFor(guess)) order[n++] = g;
+  for (const CamProtocol *p : PROTOCOLS)
+    if (p->id != guess) order[n++] = p;
+  for (int i = 0; i < n; i++) {
+    uint32_t t0 = millis();
+    bool answered = order[i]->probe(ip ? ip : order[i]->defaultIp);
+    crumb("probe %s: %s (%lu ms)", order[i]->key, answered ? "answer" : "no answer", millis() - t0);
+    if (answered) {
+      how = "answered the probe";
+      return order[i]->id;
+    }
+    if (sessionGen != gen) break;
+  }
+  how = "no answer to a probe: by address and SSID";
+  return guess;
+}
+
 static void videoTask(void *) {
   static uint8_t pkt[2048] __attribute__((aligned(4)));  // payload at +16 stays aligned
   CamSession *session = nullptr;
@@ -268,13 +299,20 @@ static void videoTask(void *) {
       clearFrame();
       telemetry.reset();
       ledRequest = -1;
+      sessionProto = CamProto::None;
       uint32_t ip = activeIp;
-      switch (activeProto.load()) {
-        case CamProto::I4season: session = createI4seasonSession(ip); break;
-        case CamProto::Jhcmd: session = createJhcmdSession(ip); break;
-        default: break;
+      CamProto p = wantProto;
+      const char *how = "chosen";
+      if (p == CamProto::Auto) p = detectProtocol(ip, gen, how);
+      if (sessionGen != gen) continue;  // changed while probing
+      const CamProtocol *d = protocolFor(p);
+      if (d) {
+        if (!ip) ip = d->defaultIp;
+        session = d->create(ip);
+        sessionProto = p;
+        diagLog("[camera] protocol %s (%s)", d->key, how);  // after the session's diagReset()
       }
-      crumb("session: %s", protoKey(activeProto));
+      crumb("session: %s (%s)", protoKey(p), how);
     }
     if (!session) {
       vTaskDelay(pdMS_TO_TICKS(100));
@@ -395,17 +433,15 @@ void cameraBegin() {
 void cameraOnWifiGotIp() {
   if (rescueMode || paused) return;
   uint32_t gw = (uint32_t)WiFi.gatewayIP();
-  CamProto p;
+  CamProto p, guess;
   {
     std::lock_guard<std::mutex> lock(camMutex);
     p = curProto;
-    if (p == CamProto::Auto) {
-      // The address beats the name: MaxSee cameras are fixed at 192.168.29.1, the SSID
-      // patterns partly rest on assumptions. Otherwise by name, else i4season.
-      if (gw == JHCMD_CAM_IP) p = CamProto::Jhcmd;
-      else p = protoForSsid(curSsid);
-      if (p == CamProto::None) p = CamProto::I4season;
-    }
+    // For "automatic", what the video task probes first and takes if no camera answers:
+    // the address beats the name (MaxSee cameras are fixed at 192.168.29.1, the SSID
+    // patterns partly rest on assumptions), otherwise by name, else i4season.
+    guess = gw && gw == PROTOCOL_JHCMD.defaultIp ? CamProto::Jhcmd : protoForSsid(curSsid);
+    if (guess == CamProto::None) guess = CamProto::I4season;
     const SsidPattern *m = patternForSsid(curSsid);
     rotationRule = m ? m->rotation : BY_SENSOR;
     // Update the remembered camera (loop stores it in NVS)
@@ -416,12 +452,12 @@ void cameraOnWifiGotIp() {
       savePref = true;
     }
   }
-  if (!gw) gw = p == CamProto::Jhcmd ? JHCMD_CAM_IP : I4SEASON_CAM_IP;
-  // New session only if camera or address changed: after short radio dropouts the
-  // existing session simply continues
-  if (p != activeProto || gw != activeIp) {
-    activeIp = gw;
-    activeProto = p;
+  // New session only if protocol choice or address changed: after short radio dropouts
+  // the existing session simply continues
+  if (p != wantProto || gw != activeIp || (p == CamProto::Auto && guess != guessProto)) {
+    activeIp = gw;  // 0: the video task takes the protocol's default address
+    guessProto = guess;
+    wantProto = p;
     sessionGen++;
   }
   state = CamState::Connected;
@@ -455,7 +491,7 @@ void cameraPause(bool on) {
   if (on == paused) return;
   paused = on;
   if (on) {
-    activeProto = CamProto::None;  // video task ends the session
+    wantProto = CamProto::None;  // video task ends the session
     activeIp = 0;
     sessionGen++;
     WiFi.setAutoReconnect(false);
@@ -631,7 +667,7 @@ size_t cameraJson(char *out, size_t len) {
   for (int i = 0; i < scanCount; i++) recognized += scanList[i].proto != CamProto::None;
   add(snprintf(out + o, room(), "{\"state\":\"%s\",\"ssid\":", stateKey(state.load())));
   add(jsonStr(out + o, room(), state == CamState::Connected || state == CamState::Connecting ? curSsid : ""));
-  add(snprintf(out + o, room(), ",\"proto\":\"%s\",\"preferred\":", protoKey(activeProto)));
+  add(snprintf(out + o, room(), ",\"proto\":\"%s\",\"preferred\":", protoKey(sessionProto)));
   add(jsonStr(out + o, room(), prefSsid));
   add(snprintf(out + o, room(),
                ",\"pref_proto\":\"%s\",\"autoscan\":%s,\"recognized\":%d,\"scan_age_s\":%ld,"
@@ -649,9 +685,9 @@ size_t cameraJson(char *out, size_t len) {
   add(snprintf(out + o, room(), ",\"firmware\":"));
   add(jsonStr(out + o, room(), firmware));
   add(snprintf(out + o, room(), ",\"protocols\":["));
-  for (int i = 0; i < PROTO_CHOICE_COUNT; i++)
-    add(snprintf(out + o, room(), "%s[\"%s\",\"%s\"]", i ? "," : "", protoKey(PROTO_CHOICES[i]),
-                 protoName(PROTO_CHOICES[i])));
+  for (int i = 0; i < protoChoiceCount(); i++)
+    add(snprintf(out + o, room(), "%s[\"%s\",\"%s\"]", i ? "," : "", protoKey(protoChoice(i)),
+                 protoName(protoChoice(i))));
   add(snprintf(out + o, room(), "],\"networks\":["));
   for (int i = 0; i < scanCount; i++) {
     add(snprintf(out + o, room(), "%s{\"ssid\":", i ? "," : ""));

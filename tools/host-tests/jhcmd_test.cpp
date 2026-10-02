@@ -24,7 +24,7 @@ int main(int argc, char **argv) {
   } else {
     printf("fill bytes             kept (JPEG_COLLAPSE_FILL 0)\n");
   }
-  CamSession *s = createJhcmdSession(IPAddress(127, 0, 0, 1));
+  CamSession *s = PROTOCOL_JHCMD.create(IPAddress(127, 0, 0, 1));
   int tx = socket(AF_INET, SOCK_DGRAM, 0); sockaddr_in to = {}; to.sin_family = AF_INET; to.sin_port = htons(10900); to.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   uint8_t buf[2048];
   auto feed = [&](const std::vector<int> &order) {

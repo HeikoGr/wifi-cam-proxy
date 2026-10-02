@@ -362,7 +362,7 @@ static void showMenu() {
 
 static ScanEntry nets[MAX_NETS];
 static int netCount = 0;
-static int protoChoice = 0;  // index into PROTO_CHOICES for the camera choice
+static int protoIndex = 0;  // protoChoice(protoIndex) for the camera choice
 
 static int barY() { return lcd.height() - GAP - ROW_H; }  // row with rescan, protocol, back
 
@@ -393,7 +393,7 @@ static void showChoose() {
   }
   int w = (dw - 4 * GAP) / 3;
   addButton(B_RESCAN, GAP, barY(), w, ROW_H, "Rescan");
-  addButton(B_PROTO, 2 * GAP + w, barY(), w, ROW_H, protoKey(PROTO_CHOICES[protoChoice]));  // protocol for the next connect
+  addButton(B_PROTO, 2 * GAP + w, barY(), w, ROW_H, protoKey(protoChoice(protoIndex)));  // protocol for the next connect
   addButton(B_BACK, 3 * GAP + 2 * w, barY(), w, ROW_H, "Back");
 }
 
@@ -428,7 +428,7 @@ static void onTouch(int tx, int ty) {
     }
   } else if (screen == Screen::Choose) {
     if (b >= B_NET0 && b < B_NET0 + netCount) {
-      cameraSelect(nets[b - B_NET0].ssid, "", PROTO_CHOICES[protoChoice]);
+      cameraSelect(nets[b - B_NET0].ssid, "", protoChoice(protoIndex));
       return showLive();
     }
     if (b == B_RESCAN) {
@@ -441,7 +441,7 @@ static void onTouch(int tx, int ty) {
     }
     if (b == B_BACK) return showLive();
     if (b == B_PROTO) {  // next protocol (auto -> i4season -> jhcmd -> ...)
-      protoChoice = (protoChoice + 1) % PROTO_CHOICE_COUNT;
+      protoIndex = (protoIndex + 1) % protoChoiceCount();
       return showChoose();
     }
   }

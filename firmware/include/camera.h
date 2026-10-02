@@ -16,19 +16,50 @@
 #include "frame.h"
 
 // --- Protocols ------------------------------------------------------------------
+// A new protocol: a cam_<name>.cpp with its CamSession and CamProtocol, a value in
+// CamProto, an entry in PROTOCOLS and its SSID patterns (both in camera.cpp). The web UI
+// and the CYD offer it by themselves.
 enum class CamProto : uint8_t {
   None = 0,
   I4season,  // Soulear/Hopefox otoscopes, MS5 microscopes (UDP 10005/10006)
   Jhcmd,     // MaxSee/JoyHonest/MAX-VIEW microscopes (UDP 20000/10900, "JHCMD")
   Auto = 0xFF,
 };
-// Camera addresses (IPv4 in network byte order, as in sockaddr_in): MaxSee/JHCMD cameras
-// are fixed at 192.168.29.1, i4season cameras usually are the gateway 192.168.1.1
+
+// IPv4 address in network byte order, as in sockaddr_in
 constexpr uint32_t ipv4(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
   return a | b << 8 | c << 16 | (uint32_t)d << 24;
 }
-constexpr uint32_t JHCMD_CAM_IP = ipv4(192, 168, 29, 1);
-constexpr uint32_t I4SEASON_CAM_IP = ipv4(192, 168, 1, 1);
+
+// A connected camera. Runs entirely in the video task.
+class CamSession {
+ public:
+  virtual ~CamSession() = default;
+  // Receives at most one packet, returns after ~200 ms at the latest
+  virtual void poll(uint8_t *pkt, size_t cap) = 0;
+};
+
+struct CamProtocol {
+  CamProto id;
+  const char *key;     // in NVS and the web UI: "i4season"
+  const char *name;    // shown in the web UI
+  uint32_t defaultIp;  // camera address if DHCP announces no gateway
+  CamSession *(*create)(uint32_t camIp);
+  // With protocol "automatic": does a camera of this protocol answer at camIp? A short
+  // request the camera answers anyway (no init, no video), at most ~400 ms. Runs in
+  // the video task before the session is created.
+  bool (*probe)(uint32_t camIp);
+};
+extern const CamProtocol PROTOCOL_I4SEASON;  // cam_i4season.cpp
+extern const CamProtocol PROTOCOL_JHCMD;     // cam_jhcmd.cpp
+const CamProtocol *protocolFor(CamProto id);  // nullptr for None and Auto
+
+// For CamProtocol::probe: send req from a UDP socket bound to localPort (0 = any) to
+// camIp:port, a second time halfway (the first packet after idle is often lost), and
+// wait up to waitMs for an answer from camIp that accept() takes (cam_probe.cpp)
+bool probeUdp(uint32_t camIp, uint16_t port, uint16_t localPort, const uint8_t *req, size_t len,
+              bool (*accept)(const uint8_t *data, int n), uint32_t waitMs = 400);
+
 const char *protoKey(CamProto p);   // "i4season", "jhcmd", "auto", ""
 const char *protoName(CamProto p);  // for the web UI
 CamProto protoFromKey(const char *key);
@@ -38,20 +69,10 @@ CamProto protoForSsid(const char *ssid);
 // rotate() (positive = clockwise): per camera model (SSID table in camera.cpp); for
 // unknown models -90 if the camera reports an orientation sensor, else 0
 int cameraImageRotation();
-// Protocols the user can choose (web UI /cameras, CYD camera choice), "automatic"
-// first. A new protocol only has to be added here (and in protoKey/protoName).
-extern const CamProto PROTO_CHOICES[];
-extern const int PROTO_CHOICE_COUNT;
-
-// A connected camera. Runs entirely in the video task.
-class CamSession {
- public:
-  virtual ~CamSession() = default;
-  // Receives at most one packet, returns after ~200 ms at the latest
-  virtual void poll(uint8_t *pkt, size_t cap) = 0;
-};
-CamSession *createI4seasonSession(uint32_t camIp);
-CamSession *createJhcmdSession(uint32_t camIp);
+// Protocols the user can choose (web UI /cameras, CYD camera choice): 0 = automatic,
+// then those of the PROTOCOLS table
+int protoChoiceCount();
+CamProto protoChoice(int i);
 
 // --- State shared by protocols and web UI ---------------------------------------
 struct VideoStats {

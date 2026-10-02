@@ -29,6 +29,8 @@ const uint16_t CMD_DEVINFO = 0x0001, CMD_OPEN_VIDEO = 0x0004, CMD_STATUS = 0x000
 const uint16_t DEVINFO_PORT = 10005;  // requests (devinfo, LED, ...)
 const uint16_t VIDEO_CTRL_PORT = 10006;  // START / OpenVideo
 const uint16_t NOTIFY_PORT = 10007;   // camera -> us: status push with battery, ~1x/s
+// GetDeviceInfo: magic, id 0, type 0x01, unk 1, err 0, length 0
+const uint8_t DISCOVERY[12] = {0xEE, 0xFF, 0xEE, 0xFF, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00};
 
 // Orientation sensor: header bytes 6-9 (little-endian) hold three 10-bit values (bits
 // 0-9 x, 10-19 y, 20-29 z), each bit 9 = sign, bits 0-8 = magnitude. ~128 equals 1 g.
@@ -129,9 +131,7 @@ class I4seasonSession : public CamSession {
       }
       haveSeq_ = false;
       if (cameraLinkUp()) {
-        // GetDeviceInfo: magic, id 0, type 0x01, unk 1, err 0, length 0
-        static const uint8_t discovery[12] = {0xEE, 0xFF, 0xEE, 0xFF, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00};
-        sendto(sock_, discovery, sizeof(discovery), 0, (sockaddr *)&discAddr_, sizeof(discAddr_));
+        sendto(sock_, DISCOVERY, sizeof(DISCOVERY), 0, (sockaddr *)&discAddr_, sizeof(discAddr_));
         sendto(sock_, start_, sizeof(start_), 0, (sockaddr *)&ctrlAddr_, sizeof(ctrlAddr_));
         lastStart_ = millis();
         stats.handshakes++;
@@ -322,6 +322,17 @@ class I4seasonSession : public CamSession {
   int ledTries_ = 0;
 };
 
+CamSession *create(uint32_t camIp) { return new (std::nothrow) I4seasonSession(camIp); }
+
+// GetDeviceInfo, as at the start of every handshake: the camera answers with its device
+// info (verified on the Soulear; the MAX-VIEW does not answer it)
+bool probe(uint32_t camIp) {
+  return probeUdp(camIp, DEVINFO_PORT, 0, DISCOVERY, sizeof(DISCOVERY), [](const uint8_t *m, int n) {
+    return n >= 12 && !memcmp(m, MAGIC, 4) && (m[6] | m[7] << 8) == CMD_DEVINFO;
+  });
+}
+
 }  // namespace
 
-CamSession *createI4seasonSession(uint32_t camIp) { return new (std::nothrow) I4seasonSession(camIp); }
+const CamProtocol PROTOCOL_I4SEASON = {CamProto::I4season, "i4season", "i4season (Soulear, MS5)",
+                                       ipv4(192, 168, 1, 1), create, probe};

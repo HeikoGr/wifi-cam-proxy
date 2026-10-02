@@ -47,8 +47,9 @@ generated test image, not from a real camera.
 | **MaxSee / JoyHonest** (`JHCMD`) | `Maxsee`, `JH-`, `MAX-VIEW`/`MAXVIEW`¹ | Wi-Fi microscopes at `192.168.29.1`, e.g. MAX-VIEW (1280×720) | ✅ | – | ✅³ | ✅ dimmable (MAX-VIEW) | MAX-VIEW proven on the ZB-GW03 |
 
 ¹ Although the MAX-VIEW app is by i4season, the microscope (`MAXVIEW-xxxx`) sits at `192.168.29.1`
-and speaks JHCMD. With the protocol "automatic" the address `192.168.29.1` always selects JHCMD,
-whatever the Wi-Fi is called. Under `/cameras` the protocol can also be chosen per network.
+and speaks JHCMD. With the protocol "automatic" the firmware asks the camera: each protocol has a
+short probe, and the first that gets an answer wins (see [firmware/README.md](firmware/README.md#cameras)).
+Under `/cameras` the protocol can also be chosen per network.
 ² Implemented from the protocol documentation, not yet checked on our own device.
 ³ MAX-VIEW: in 10 % steps, derived from the vendor app's display (checked from 10 to 80 %); the
 value is too high while charging.
@@ -143,8 +144,11 @@ Details on usage, diagnostics and the measurements behind the settings are in
 of the currently connected camera occupies RAM. It is created on connect and freed again on
 change. Another protocol therefore costs flash, but no RAM.
 
-**New protocol:** derive a class from `CamSession` ([firmware/include/camera.h](firmware/include/camera.h)),
-add it to `CamProto` and the video task, and add the SSID patterns to `SSID_PATTERNS`.
+**New protocol:** a `cam_<name>.cpp` with a `CamSession` and a `CamProtocol` (key, name, default
+address, `create`, `probe`; see [firmware/include/camera.h](firmware/include/camera.h)), a value in
+`CamProto`, an entry in `PROTOCOLS` and the SSID patterns of its models in `SSID_PATTERNS` (both in
+[camera.cpp](firmware/src/camera.cpp), including the image rotation per model). Web UI, CYD and
+"automatic" pick it up by themselves.
 
 ## Reverse-engineering projects
 

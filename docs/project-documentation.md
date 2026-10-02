@@ -220,7 +220,7 @@ Observed on a MAX-VIEW microscope (`MAXVIEW-7762`, 2026-10-01) with a raw captur
 
 | Task | Core | Priority | Job |
 |---|---|---|---|
-| `videoTask` | core 1 | 10 | creates the session of the active camera protocol: UDP receive, JPEG assembly, orientation, battery, LED |
+| `videoTask` | core 1 | 10 | creates the session of the camera protocol (with "automatic" after the protocol probes, `PROTOCOLS` in camera.cpp): UDP receive, JPEG assembly, orientation, battery, LED |
 | `httpTask` | core 1 | 3 | TCP accept, creates a clientTask per connection ([http.cpp](../firmware/src/http.cpp)) |
 | `clientTask` | core 1 | 3 | HTTP request → response: looks the path up in `ROUTES` (method, path or prefix, password yes/no, handler) |
 | `loop()` | core 1 | 1 | camera scan/selection (`cameraLoop`), rescue mode, ArduinoOTA, sniffer start/stop, FPS statistics. All `WiFi.*` calls that change the connection run here; HTTP tasks only leave requests (`cameraSelect`, `sniffRequest`) |

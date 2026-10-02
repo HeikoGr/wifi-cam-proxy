@@ -494,6 +494,20 @@ class JhcmdSession : public CamSession {
   bool inited_ = false;                    // init sequence sent in this session
 };
 
+CamSession *create(uint32_t camIp) { return new (std::nothrow) JhcmdSession(camIp); }
+
+// INIT2 ("JHCMD" 20 00) alone, from our port 20000: the MAX-VIEW answers it with its
+// 105-byte info reply to the client's port 20000 (sniffed after every handshake).
+// Whether it answers INIT2 without INIT1 before is not verified on the device; without
+// an answer "automatic" falls back to address and SSID. Not the whole init: sent again
+// shortly after by the session, that might restart the camera (see JH_REINIT_MS).
+bool probe(uint32_t camIp) {
+  return probeUdp(camIp, CMD_PORT, CMD_PORT, CMD_INIT2, sizeof(CMD_INIT2), [](const uint8_t *m, int n) {
+    return n >= 24 && !memcmp(m, "JHCMD", 5) && m[5] == 0x20 && m[6] == 0x00;
+  });
+}
+
 }  // namespace
 
-CamSession *createJhcmdSession(uint32_t camIp) { return new (std::nothrow) JhcmdSession(camIp); }
+const CamProtocol PROTOCOL_JHCMD = {CamProto::Jhcmd, "jhcmd", "MaxSee/JoyHonest/MAX-VIEW (JHCMD)",
+                                    ipv4(192, 168, 29, 1), create, probe};
