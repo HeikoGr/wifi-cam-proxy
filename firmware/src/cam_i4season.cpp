@@ -1,18 +1,18 @@
 /*
- * i4season-Protokoll (libWifiCamera): Soulear/Hopefox-Otoskope, MS5- und vermutlich
- * MAX-VIEW-Mikroskope, Suear, inskam u.a.
+ * i4season protocol (libWifiCamera): Soulear/Hopefox otoscopes, MS5 and probably
+ * MAX-VIEW microscopes, Suear, inskam and others.
  *
- * Ablauf (am Soulear Find T verifiziert): GetDeviceInfo an UDP 10005, danach START
- * an UDP 10006, beides vom selben Socket. Dann kommen JPEG-Stücke mit 16-Byte-Kopf
- * (Typ 1) bzw. 28-Byte-Kopf (Typ 6) an den gemeldeten Port.
+ * Sequence (verified on the Soulear Find T): GetDeviceInfo to UDP 10005, then START
+ * to UDP 10006, both from the same socket. JPEG chunks with a 16-byte header (type 1)
+ * or 28-byte header (type 6) then arrive at the announced port.
  *
- * Quellen:
- *   king-cake/otoscope-windows docs/i4season-protocol.md  (Ghidra, am Find T verifiziert)
- *   Fyfar/ms5-wifi-microscope README                        (MS5-Mikroskop, 1280x720)
+ * Sources:
+ *   king-cake/otoscope-windows docs/i4season-protocol.md  (Ghidra, verified on the Find T)
+ *   Fyfar/ms5-wifi-microscope README                        (MS5 microscope, 1280x720)
  *
- * Der Empfangsteil ist unverändert aus der am ZB-GW03 erprobten Firmware übernommen.
- * Neu: Akku (Devinfo + Status-Push auf UDP 10007), LED (Befehl 0x0A), Kopflänge nach
- * Typ-Byte, Lagesensor nur, wenn das Flag "hat G-Sensor" gesetzt ist.
+ * The receive path is taken unchanged from the firmware proven on the ZB-GW03.
+ * New: battery (devinfo + status push on UDP 10007), LED (command 0x0A), header
+ * length by type byte, orientation only if the "has G-sensor" flag is set.
  */
 
 #include <Arduino.h>
@@ -26,12 +26,12 @@ namespace {
 
 const uint8_t MAGIC[4] = {0xEE, 0xFF, 0xEE, 0xFF};
 const uint16_t CMD_DEVINFO = 0x0001, CMD_OPEN_VIDEO = 0x0004, CMD_STATUS = 0x0009, CMD_LED = 0x000A;
-const uint16_t DEVINFO_PORT = 10005;  // Anfragen (Devinfo, LED, ...)
+const uint16_t DEVINFO_PORT = 10005;  // requests (devinfo, LED, ...)
 const uint16_t VIDEO_CTRL_PORT = 10006;  // START / OpenVideo
-const uint16_t NOTIFY_PORT = 10007;   // Kamera -> uns: Status-Push mit Akku, ~1x/s
+const uint16_t NOTIFY_PORT = 10007;   // camera -> us: status push with battery, ~1x/s
 
-// Lagesensor: Kopf-Bytes 6-9 (little-endian) enthalten drei 10-Bit-Werte (Bits 0-9 x,
-// 10-19 y, 20-29 z), je Bit 9 = Vorzeichen, Bits 0-8 = Betrag. ~128 entsprechen 1 g.
+// Orientation sensor: header bytes 6-9 (little-endian) hold three 10-bit values (bits
+// 0-9 x, 10-19 y, 20-29 z), each bit 9 = sign, bits 0-8 = magnitude. ~128 equals 1 g.
 int16_t signMag10(uint32_t v) { return (v & 0x200) ? -(int16_t)(v & 0x1FF) : (int16_t)(v & 0x1FF); }
 
 void decodeOrientation(const uint8_t *hdr) {
@@ -49,7 +49,7 @@ void copyText(char *dst, size_t cap, const uint8_t *src, size_t n) {
   dst[i] = 0;
 }
 
-// Akku: Bits 1-7 = %, Bit 0 = vermutlich "lädt" (100 % beobachtet als 0xC8)
+// Battery: bits 1-7 = %, bit 0 = probably "charging" (100 % observed as 0xC8)
 void setBattery(uint8_t b) {
   if ((b >> 1) <= 100) {
     telemetry.battery = b >> 1;
@@ -64,7 +64,7 @@ class I4seasonSession : public CamSession {
     sockaddr_in local = {};
     local.sin_family = AF_INET;
     local.sin_addr.s_addr = htonl(INADDR_ANY);
-    local.sin_port = 0;  // freien Port vom Stack holen
+    local.sin_port = 0;  // let the stack pick a free port
     bind(sock_, (sockaddr *)&local, sizeof(local));
     socklen_t slen = sizeof(local);
     getsockname(sock_, (sockaddr *)&local, &slen);
@@ -73,7 +73,7 @@ class I4seasonSession : public CamSession {
     timeval tv = {0, 200 * 1000};
     setsockopt(sock_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
-    // START: magic, id 2, type 0x04, unk 1, err 0, length 2, Port (LE), 00 00
+    // START: magic, id 2, type 0x04, unk 1, err 0, length 2, port (LE), 00 00
     const uint8_t start[16] = {0xEE, 0xFF, 0xEE, 0xFF, 0x02, 0x00, 0x04, 0x00, 0x01, 0x00, 0x02, 0x00,
                                (uint8_t)(myPort_ & 0xFF), (uint8_t)(myPort_ >> 8), 0x00, 0x00};
     memcpy(start_, start, sizeof(start_));
@@ -83,8 +83,8 @@ class I4seasonSession : public CamSession {
     discAddr_.sin_port = htons(DEVINFO_PORT);
     ctrlAddr_.sin_port = htons(VIDEO_CTRL_PORT);
 
-    // Status-Push der Kamera (Akku). Optional: klappt das Binden nicht, bleibt der
-    // Akkustand aus der Devinfo-Antwort beim Handshake.
+    // Status push from the camera (battery). Optional: if binding fails, the battery
+    // level from the devinfo reply at handshake remains.
     notify_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     sockaddr_in n = {};
     n.sin_family = AF_INET;
@@ -96,7 +96,7 @@ class I4seasonSession : public CamSession {
     }
 
     telemetry.ledSupported = true;
-    Serial.printf("[i4season] Empfange auf UDP-Port %u\n", myPort_);
+    Serial.printf("[i4season] receiving on UDP port %u\n", myPort_);
   }
 
   ~I4seasonSession() override {
@@ -107,7 +107,7 @@ class I4seasonSession : public CamSession {
   void poll(uint8_t *pkt, size_t cap) override {
     int n = recvfrom(sock_, pkt, cap, 0, nullptr, nullptr);
 
-    // Lebenszeichen: START vorsorglich wiederholen, solange Video läuft (0 = aus)
+    // Keepalive: repeat START as a precaution while video is running (0 = off)
     if (KEEPALIVE_INTERVAL_MS > 0 && haveSeq_ && cameraLinkUp() &&
         millis() - lastStart_ >= KEEPALIVE_INTERVAL_MS) {
       sendto(sock_, start_, sizeof(start_), 0, (sockaddr *)&ctrlAddr_, sizeof(ctrlAddr_));
@@ -115,11 +115,11 @@ class I4seasonSession : public CamSession {
       stats.keepalives++;
     }
 
-    // Stillstand erkennen, aber nach einem START der Kamera Zeit zum Anlaufen lassen:
-    // ein neuer START vor dem Anlaufen startet sie erneut (Kaskade bei 200 ms beobachtet).
-    // Erstes Paket nach Leerlauf geht oft verloren -> Handshake wiederholen.
+    // Detect a stall, but give the camera time to start up after a START: a new
+    // START before it is running restarts it (cascade observed at 200 ms).
+    // The first packet after idle is often lost -> repeat the handshake.
     if (millis() - lastData_ > STALL_TIMEOUT_MS && millis() - lastStart_ >= HANDSHAKE_RETRY_MS) {
-      if (haveSeq_) {  // Video lief bis eben
+      if (haveSeq_) {  // video was running until now
         bool loss = lastLoss_ && millis() - lastLoss_ < STALL_TIMEOUT_MS + 2000;
         if (loss) {
           stats.stallsLoss++;
@@ -127,8 +127,8 @@ class I4seasonSession : public CamSession {
           stats.cleanStallAt[stats.stallsClean % VideoStats::CLEAN_STALL_TIMES] = millis() / 1000;
           stats.stallsClean++;
         }
-        crumb("stall: %u ms keine Daten -> Handshake (%s)", STALL_TIMEOUT_MS,
-              loss ? "nach Paketverlust" : "ohne Paketverlust");
+        crumb("stall: %u ms without data -> handshake (%s)", STALL_TIMEOUT_MS,
+              loss ? "after packet loss" : "without packet loss");
       }
       haveSeq_ = false;
       if (cameraLinkUp()) {
@@ -148,8 +148,8 @@ class I4seasonSession : public CamSession {
     if (millis() - lastNotify_ >= 250) pollNotify();
 
     if (n <= 0) return;
-    if (n >= 12 && memcmp(pkt, MAGIC, 4) == 0) return handleReply(pkt, n);  // Antworten/ACKs
-    // Typ 1 = 16-Byte-Kopf, Typ 6 = 28-Byte-Kopf (6-Achsen-Sensor), 5 = Ton, 2 = ?
+    if (n >= 12 && memcmp(pkt, MAGIC, 4) == 0) return handleReply(pkt, n);  // replies/ACKs
+    // type 1 = 16-byte header, type 6 = 28-byte header (6-axis sensor), 5 = audio, 2 = ?
     size_t hdrLen = pkt[0] == 6 ? 28 : 16;
     if (pkt[0] != 1 && pkt[0] != 6) return;
     if (n <= (int)hdrLen) return;
@@ -158,9 +158,9 @@ class I4seasonSession : public CamSession {
     const uint8_t *payload = pkt + hdrLen;
     size_t plen = n - hdrLen;
 
-    // Lage steht in jedem Paket des Bildes; beim ersten ankommenden Paket eines neuen
-    // Bildes (Byte 2) übernehmen, damit ein verlorenes Startpaket keinen Messwert kostet.
-    // Nur wenn Kopf-Byte 5 Bit 0 ("hat G-Sensor") gesetzt ist (Soulear: immer, MS5: nie)
+    // The orientation is in every packet of the frame; take it from the first packet
+    // of a new frame (byte 2) that arrives, so a lost start packet costs no reading.
+    // Only if header byte 5 bit 0 ("has G-sensor") is set (Soulear: always, MS5: never)
     if (!haveSensorFrame_ || pkt[2] != sensorFrame_) {
       if (pkt[5] & 0x01) decodeOrientation(pkt);
       telemetry.width = pkt[12] | (pkt[13] << 8);
@@ -169,7 +169,7 @@ class I4seasonSession : public CamSession {
       haveSensorFrame_ = true;
     }
 
-    // Laufende Paketnummer (Byte 1, 8 Bit) -> verlorene Pakete erkennen
+    // Running packet number (byte 1, 8 bits) -> detect lost packets
     uint8_t seq = pkt[1];
     if (haveSeq_ && seq != nextSeq_) {
       uint8_t gap = seq - nextSeq_;
@@ -181,11 +181,11 @@ class I4seasonSession : public CamSession {
     nextSeq_ = seq + 1;
 
     if (plen >= 2 && payload[0] == 0xFF && payload[1] == 0xD8) {
-      if (inFrame_) {  // vorheriges Bild wurde nie fertig (Ende verloren)
+      if (inFrame_) {  // previous frame never finished (end lost)
         stats.framesDropped++;
         stats.dropIncomplete++;
       }
-      building_ = Frame::create();  // neues Bild beginnt
+      building_ = Frame::create();  // new frame starts
       inFrame_ = (bool)building_;
       frameBroken_ = false;
       if (!inFrame_) {
@@ -194,7 +194,7 @@ class I4seasonSession : public CamSession {
         return;
       }
     } else if (!inFrame_) {
-      return;  // mittendrin eingestiegen -> auf nächsten Bildanfang warten
+      return;  // joined mid-frame -> wait for the next frame start
     }
 
     if (building_.size() + plen > MAX_FRAME_BYTES) {
@@ -212,11 +212,11 @@ class I4seasonSession : public CamSession {
       return;
     }
 
-    // Endet hier das Bild? (FF D9, eventuell gefolgt von Füll-Nullen)
+    // Does the frame end here? (FF D9, possibly followed by padding zeros)
     size_t end = plen;
     while (end > 0 && payload[end - 1] == 0x00) end--;
     if (end >= 2 && payload[end - 2] == 0xFF && payload[end - 1] == 0xD9) {
-      if (frameBroken_ && !SHOW_DAMAGED_FRAMES) {  // kaputtes JPEG nicht weitergeben
+      if (frameBroken_ && !SHOW_DAMAGED_FRAMES) {  // do not pass on a broken JPEG
         stats.framesDropped++;
         stats.dropIncomplete++;
       } else {
@@ -230,7 +230,7 @@ class I4seasonSession : public CamSession {
   }
 
  private:
-  // Antworten der Kamera auf unseren Socket: Devinfo (Akku, Produkt) und LED
+  // Camera replies on our socket: devinfo (battery, product) and LED
   void handleReply(const uint8_t *pkt, int n) {
     uint16_t cmd = pkt[6] | (pkt[7] << 8);
     size_t len = pkt[10] | (pkt[11] << 8);
@@ -244,15 +244,15 @@ class I4seasonSession : public CamSession {
       portEXIT_CRITICAL(&infoMux);
       setBattery(p[0x78]);
     } else if (cmd == CMD_LED && plen >= 2 && pkt[9] == 0) {
-      telemetry.led = p[1] ? 1 : 0;  // Antwort = resultierender Zustand
+      telemetry.led = p[1] ? 1 : 0;  // reply = resulting state
       int want = ledRequest;
       if (want == telemetry.led) ledRequest.compare_exchange_strong(want, -1);
-      crumb("LED bestätigt: %s", p[1] ? "an" : "aus");
+      crumb("LED confirmed: %s", p[1] ? "on" : "off");
     }
   }
 
-  // LED-Wunsch senden und wiederholen, bis die Kamera ihn bestätigt (max. 5x).
-  // Payload: op (LED 1 | 0x10 = schreiben), Status 0/1, Helligkeit (am Find T verifiziert)
+  // Send the LED request and repeat it until the camera confirms it (max. 5x).
+  // Payload: op (LED 1 | 0x10 = write), status 0/1, brightness (verified on the Find T)
   void handleLed() {
     int want = ledRequest;
     if (want < 0) {
@@ -261,7 +261,7 @@ class I4seasonSession : public CamSession {
     }
     if (!cameraLinkUp() || (ledTries_ && millis() - ledSent_ < 300)) return;
     if (ledTries_ >= 5) {
-      crumb("LED: keine Bestätigung");
+      crumb("LED: no confirmation");
       ledRequest.compare_exchange_strong(want, -1);
       ledTries_ = 0;
       return;
@@ -275,7 +275,7 @@ class I4seasonSession : public CamSession {
     ledTries_++;
   }
 
-  // Status-Push auf UDP 10007: cmd 0x0009, Payload-Typ 0x02, Payload-Byte 1 = Akku
+  // Status push on UDP 10007: cmd 0x0009, payload type 0x02, payload byte 1 = battery
   void pollNotify() {
     lastNotify_ = millis();
     if (notify_ < 0) return;
@@ -293,16 +293,16 @@ class I4seasonSession : public CamSession {
   uint16_t myPort_ = 0;
   uint8_t start_[16];
   sockaddr_in discAddr_ = {}, ctrlAddr_ = {};
-  Frame building_;             // hier wächst das aktuelle JPEG
+  Frame building_;             // the current JPEG grows here
   bool inFrame_ = false;
-  bool frameBroken_ = false;   // im aktuellen Bild fehlt ein Paket
+  bool frameBroken_ = false;   // a packet of the current frame is missing
   bool haveSeq_ = false;
   uint8_t nextSeq_ = 0;
-  uint8_t sensorFrame_ = 0;    // Bildnummer des zuletzt gelesenen Lagewerts
+  uint8_t sensorFrame_ = 0;    // frame number of the last orientation reading
   bool haveSensorFrame_ = false;
   uint32_t lastData_ = 0;
-  uint32_t lastStart_ = 0;     // letzter START (Handshake oder Lebenszeichen)
-  uint32_t lastLoss_ = 0;      // letzte Lücke in der Paketnummer
+  uint32_t lastStart_ = 0;     // last START (handshake or keepalive)
+  uint32_t lastLoss_ = 0;      // last gap in the packet number
   uint32_t lastNotify_ = 0;
   uint16_t cmdSeq_ = 5;
   uint32_t ledSent_ = 0;

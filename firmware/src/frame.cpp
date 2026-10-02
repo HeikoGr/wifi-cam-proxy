@@ -7,10 +7,10 @@
 
 #include "camera.h"
 
-// --- Speicher -------------------------------------------------------------------
-// ESP.getFreeHeap()/getMaxAllocHeap() zählen den IRAM-Rest mit (MALLOC_CAP_INTERNAL).
-// Der ist nur wortweise nutzbar, also weder für malloc() noch für Task-Stacks. Für
-// Entscheidungen und Anzeige zählt nur der byteweise nutzbare Speicher (8BIT).
+// --- Memory ---------------------------------------------------------------------
+// ESP.getFreeHeap()/getMaxAllocHeap() include the IRAM remainder (MALLOC_CAP_INTERNAL).
+// It is word-addressable only, so usable neither for malloc() nor for task stacks.
+// Decisions and display only count byte-addressable memory (8BIT).
 static const uint32_t HEAP_CAPS = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
 unsigned heapFree() { return heap_caps_get_free_size(HEAP_CAPS); }
 unsigned heapMin() { return heap_caps_get_minimum_free_size(HEAP_CAPS); }
@@ -19,24 +19,24 @@ unsigned iramFree() {
   return heap_caps_get_free_size(MALLOC_CAP_INTERNAL) - heap_caps_get_free_size(HEAP_CAPS);
 }
 
-// Bildstücke liegen bevorzugt im IRAM-Rest (~44 KB), der sonst ungenutzt bleibt und
-// den normalen Heap entlastet. IRAM verträgt nur 32-Bit-Zugriffe: deshalb wortweise
-// kopieren (volatile, damit der Compiler daraus kein byteweises memcpy macht).
+// Frame chunks preferably live in the IRAM remainder (~44 KB), which would otherwise
+// stay unused, and relieve the regular heap. IRAM only supports 32-bit accesses: hence
+// copy word by word (volatile, so the compiler does not turn it into a byte memcpy).
 uint8_t *allocChunk(size_t len, size_t frameSoFar) {
   size_t bytes = (len + 3) & ~(size_t)3;
   void *p = USE_IRAM_CHUNKS ? heap_caps_malloc(bytes, MALLOC_CAP_EXEC) : nullptr;  // IRAM
-  // EXEC liefert u.U. auch RTC-FAST-Speicher: der ist ebenfalls nur wortweise und von
-  // Core 1 gar nicht nutzbar -> nur echtes IRAM behalten, sonst normaler Heap
+  // EXEC may also return RTC FAST memory: it is word-only as well and not usable from
+  // core 1 at all -> keep only real IRAM, otherwise regular heap
   if (p && !esp_ptr_in_iram(p)) {
     free(p);
     p = nullptr;
   }
   if (!p) {
-    // Große Bilder (Mikroskope mit 720p) dürfen den Heap nicht leer laufen lassen,
-    // sonst fehlt er WLAN-Treiber und HTTP-Tasks. Bis FRAME_RESERVE_FROM gilt das
-    // nicht: so bleibt das am Otoskop erprobte Verhalten unverändert.
+    // Large frames (720p microscopes) must not drain the heap, otherwise the Wi-Fi
+    // driver and HTTP tasks run short. Up to FRAME_RESERVE_FROM this does not apply:
+    // that keeps the behaviour proven on the otoscope unchanged.
     if (frameSoFar >= FRAME_RESERVE_FROM && heapFree() < FRAME_HEAP_RESERVE + bytes) return nullptr;
-    p = malloc(bytes);  // IRAM voll -> normaler Heap
+    p = malloc(bytes);  // IRAM full -> regular heap
   }
   return (uint8_t *)p;
 }
@@ -76,7 +76,7 @@ __attribute__((noinline)) void copyFromChunk(uint8_t *dst, const uint8_t *chunk,
   }
 }
 
-// --- Aktuelles Bild -------------------------------------------------------------
+// --- Current frame --------------------------------------------------------------
 static std::mutex frameMutex;
 static Frame latestFrame;
 static uint32_t frameSeq = 0;
@@ -84,7 +84,7 @@ static uint32_t frameSeq = 0;
 void publishFrame(const Frame &frame) {
   if (frame.size() > stats.maxFrameBytes) stats.maxFrameBytes = frame.size();
   std::lock_guard<std::mutex> lock(frameMutex);
-  latestFrame = frame;  // altes Bild wird frei, sobald kein Client es mehr sendet
+  latestFrame = frame;  // old frame is freed once no client is sending it any more
   frameSeq++;
   stats.framesTotal++;
 }

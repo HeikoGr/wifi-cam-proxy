@@ -1,12 +1,12 @@
 {
   "recommendations": [
-    // Task-Buttons in der Statusleiste (ersetzt die schwerfällige PIO-Extension für Build/Flash)
+    // task buttons in the status bar (replaces the heavy PIO extension for build/flash)
     "actboy168.tasks",
     // C/C++ IntelliSense (Syntax, Autocompletion, Go-to-definition)
     "ms-vscode.cpptools",
-    // PlatformIO IDE (optional, nur wenn IDE-Integration gewünscht; ohne reicht die CLI)
+    // PlatformIO IDE (optional, only if IDE integration is wanted; the CLI is enough without it)
     // "platformio.platformio-ide",
-    // Besser lesbares Serial-Monitor-Ersatz
+    // more readable serial monitor replacement
     "ms-vscode.serial-monitor"
   ]
 }

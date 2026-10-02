@@ -1,18 +1,18 @@
 /*
- * WiFi-Cam-Proxy für ESP32 + LAN8720 (ZB-GW03 v1.4, WT32-ETH01)
+ * WiFi-Cam-Proxy for ESP32 + LAN8720 (ZB-GW03 v1.4, WT32-ETH01)
  *
- * - WLAN (Client): sucht WLAN-Kameras (Otoskope, Mikroskope) am SSID-Namen und
- *   verbindet sich mit einer davon (src/camera.cpp, Protokolle in src/cam_*.cpp)
- * - Ethernet (DHCP): stellt im Heimnetz einen MJPEG-Server bereit
- *     http://otoskop.local/          Browser
+ * - Wi-Fi (client): looks for Wi-Fi cameras (otoscopes, microscopes) by SSID and
+ *   connects to one of them (src/camera.cpp, protocols in src/cam_*.cpp)
+ * - Ethernet (DHCP): provides an MJPEG server in the home network
+ *     http://otoskop.local/          browser
  *     http://otoskop.local/stream    VLC / Home Assistant
- *     http://otoskop.local/snapshot  Einzelbild
- *     http://otoskop.local/cameras   Kamera wählen
- *     http://otoskop.local/status    JSON mit Statistik
- *     http://otoskop.local/update    Firmware-Update im Browser
+ *     http://otoskop.local/snapshot  single frame
+ *     http://otoskop.local/cameras   choose camera
+ *     http://otoskop.local/status    JSON with statistics
+ *     http://otoskop.local/update    firmware update in the browser
  *
- * Notfall-Modus (src/rescue.cpp): Hat Ethernet RESCUE_TIMEOUT_MS lang keine IP, geht
- * das WLAN ins Heim-WLAN oder öffnet einen eigenen Access Point mit Einrichtungsseite.
+ * Rescue mode (src/rescue.cpp): if Ethernet has no IP for RESCUE_TIMEOUT_MS, Wi-Fi
+ * joins the home Wi-Fi or opens its own access point with a setup page.
  */
 
 #include <Arduino.h>
@@ -37,7 +37,7 @@
 
 static const char FW_VERSION[] = __DATE__ " " __TIME__;
 
-// Überlebt Neustarts (nicht aber Stromausfall) -> zählt Resets seit dem Einschalten
+// Survives restarts (but not power loss) -> counts resets since power-on
 RTC_NOINIT_ATTR static uint32_t bootMagic;
 RTC_NOINIT_ATTR static uint32_t bootCount;
 
@@ -57,13 +57,13 @@ static const char *resetReasonText() {
 }
 // --- Status ---------------------------------------------------------------------
 static volatile bool ethUp = false;
-static volatile bool ethStarted = false;  // LAN8720 initialisiert
+static volatile bool ethStarted = false;  // LAN8720 initialised
 static bool ethBeginOk = false;
 volatile bool rescueMode = false;
 std::atomic<bool> updating{false};
 static std::atomic<int> streamClients{0};
 static std::atomic<int> sseClients{0};
-// WLAN-Modus zur Kamera (Index in WIFI_MODES), siehe wifiApplyMode()
+// Wi-Fi mode towards the camera (index into WIFI_MODES), see wifiApplyMode()
 static const char *const WIFI_MODES[] = {"bgn", "bg", "b"};
 static int wifiModeIndex(const String &m) {
   for (int i = 0; i < 3; i++)
@@ -71,14 +71,14 @@ static int wifiModeIndex(const String &m) {
   return -1;
 }
 static std::atomic<int> wifiMode{wifiModeIndex(WIFI_MODE_DEFAULT)};
-// WLAN-Sendeleistung in 0,25 dBm (8..84). Hohe Leistung stört den Ethernet-Takt, den
-// der ESP32 selbst auf GPIO17 erzeugt -> verlorene Ethernet-Pakete (am Gerät gemessen)
+// Wi-Fi transmit power in 0.25 dBm (8..84). High power disturbs the Ethernet clock the
+// ESP32 generates itself on GPIO17 -> lost Ethernet packets (measured on the device)
 static std::atomic<int> wifiTxQdbm{WIFI_TX_QDBM_DEFAULT};
 
-static std::atomic<bool> eth10{ETH_10MBIT_DEFAULT};  // Ethernet nur 10 Mbit, siehe ethApplySpeed()
+static std::atomic<bool> eth10{ETH_10MBIT_DEFAULT};  // Ethernet 10 Mbit only, see ethApplySpeed()
 static void ethApplySpeed();
 
-// Zigbee-Modul (nur ZB-GW03) wird nicht gebraucht: im Reset halten, spart Strom
+// The Zigbee module (ZB-GW03 only) is not needed: hold it in reset, saves power
 static void setZigbee(bool on) {
   if (ZIGBEE_NRST_GPIO < 0) return;
   pinMode(ZIGBEE_NRST_GPIO, OUTPUT);
@@ -88,13 +88,13 @@ static void setZigbee(bool on) {
 static std::atomic<int> clientTasks{0};
 static float currentFps = 0;
 
-#include "web_ui.h"  // Startseite, Kalibrierung, Update-Seite, gemeinsames JS
+#include "web_ui.h"  // start page, calibration, update page, shared JS
 
-// --- HTTP-Server ----------------------------------------------------------------
-// Nicht blockierend senden und selbst nach 5 ms erneut versuchen. Ein blockierendes
-// send() schläft bei kurzem Speichermangel in lwIP (ERR_MEM) bis zum nächsten
-// Abfrage-Timer der Verbindung, und der läuft nur ~1x pro Sekunde -> 1 s Standbild
-// (gemessen: alles bestätigt, Fenster offen, trotzdem Sendepause).
+// --- HTTP server ----------------------------------------------------------------
+// Send non-blocking and retry ourselves after 5 ms. A blocking send() sleeps in lwIP
+// on a brief memory shortage (ERR_MEM) until the connection's next poll timer, which
+// only runs ~1x per second -> 1 s frozen frame (measured: everything acknowledged,
+// window open, still a send pause).
 static bool sendAll(int fd, const void *data, size_t len) {
   const uint8_t *p = (const uint8_t *)data;
   uint32_t lastProgress = millis();
@@ -107,7 +107,7 @@ static bool sendAll(int fd, const void *data, size_t len) {
       continue;
     }
     bool busy = n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == ENOMEM);
-    if (!busy || millis() - lastProgress > 5000) return false;  // Fehler oder 5 s nichts
+    if (!busy || millis() - lastProgress > 5000) return false;  // error or nothing for 5 s
     vTaskDelay(pdMS_TO_TICKS(5));
   }
   return true;
@@ -127,7 +127,7 @@ static void sendText(int fd, int code, const char *reason, const char *text) {
   sendResponse(fd, code, reason, "text/plain; charset=utf-8", text, strlen(text));
 }
 
-// Wert eines Request-Headers (ohne Groß-/Kleinschreibung), "" wenn nicht vorhanden
+// Value of a request header (case-insensitive), "" if not present
 static String headerValue(const char *req, const char *name) {
   size_t nlen = strlen(name);
   for (const char *line = strstr(req, "\r\n"); line; line = strstr(line, "\r\n")) {
@@ -146,11 +146,11 @@ static bool authorized(const char *req) {
   return strlen(OTA_PASSWORD) == 0 || headerValue(req, "X-OTA-Password") == OTA_PASSWORD;
 }
 
-// Sammelt kleine Stücke und sendet sie in Blöcken. Jeder send() ist ein Auftrag an den
-// lwIP-Task, der auch die WLAN-Pakete vom Otoskop verarbeitet; ~30 Aufträge pro Bild
-// bremsen dort den Empfang. Offen: bei hoher Datenrate gehen einzelne TCP-Segmente auf
-// dem Weg ins LAN verloren (vermutlich Sendepuffer des Ethernet-Controllers, 10 x 512
-// Byte); TCP wiederholt sie erst nach ~1 s. Die Blockgröße ändert daran nichts.
+// Collects small pieces and sends them in blocks. Every send() is a job for the lwIP
+// task, which also processes the Wi-Fi packets from the camera; ~30 jobs per frame
+// slow down reception there. Open issue: at high data rates single TCP segments get
+// lost on the way into the LAN (probably the Ethernet controller's transmit buffer,
+// 10 x 512 bytes); TCP only retransmits them after ~1 s. The block size does not help.
 static const size_t SEND_BLOCK = SEND_BLOCK_SEGMENTS * 1436;
 
 struct BlockSender {
@@ -164,7 +164,7 @@ struct BlockSender {
 
   void put(const void *data, size_t n) {
     if (!ok) return;
-    if (!buf) {  // kein Speicher für den Puffer -> direkt senden
+    if (!buf) {  // no memory for the buffer -> send directly
       ok = sendAll(fd, data, n);
       return;
     }
@@ -178,7 +178,7 @@ struct BlockSender {
       if (len == SEND_BLOCK) flush();
     }
   }
-  // Bildstück, das evtl. im IRAM liegt: wortweise lesen, byteweise weitergeben
+  // Frame chunk possibly in IRAM: read word by word, pass on byte by byte
   __attribute__((noinline)) void putChunk(const uint8_t *src, size_t n) {
     if (!esp_ptr_in_iram(src)) return put(src, n);
     const volatile uint32_t *s = (const volatile uint32_t *)src;
@@ -213,23 +213,23 @@ static bool clientClosed(int fd) {
 static void handleStream(int fd) {
   if (++streamClients > MAX_STREAM_CLIENTS) {
     streamClients--;
-    sendText(fd, 503, "Service Unavailable", "Zu viele Zuschauer");
+    sendText(fd, 503, "Service Unavailable", "Too many viewers");
     return;
   }
   static const char hdr[] =
       "HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\n"
       "Cache-Control: no-cache\r\nConnection: close\r\n\r\n";
-  crumb("stream auf (%d Zuschauer)", (int)streamClients);
+  crumb("stream open (%d viewers)", (int)streamClients);
   if (sendAll(fd, hdr, sizeof(hdr) - 1)) {
     uint32_t seq = 0;
     uint32_t lastCheck = millis();
-    BlockSender out(fd);  // ein Puffer pro Zuschauer, für alle Bilder
+    BlockSender out(fd);  // one buffer per viewer, for all frames
     Frame frame;
     while (!updating) {
       uint32_t s = getFrame(frame);
       if (s == seq || !frame) {
         frame.reset();
-        // Beim Warten gelegentlich prüfen, ob der Client noch da ist
+        // While waiting, check now and then whether the client is still there
         if (millis() - lastCheck > 1000) {
           if (clientClosed(fd)) break;
           lastCheck = millis();
@@ -254,7 +254,7 @@ static void handleStream(int fd) {
     }
   }
   streamClients--;
-  crumb("stream zu (%d Zuschauer)", (int)streamClients);
+  crumb("stream closed (%d viewers)", (int)streamClients);
 }
 
 static float wifiTxDbm() {
@@ -266,7 +266,7 @@ static void handleStatus(int fd) {
   bool wifiOk = WiFi.status() == WL_CONNECTED;
   char crash[320];
   crashlogFormat(crash, sizeof(crash));
-  // Zeitpunkte der letzten sauberen Stillstände, älteste zuerst
+  // Times of the last clean stalls, oldest first
   char times[96] = "";
   uint32_t nClean = stats.stallsClean;
   uint32_t shown = min(nClean, (uint32_t)VideoStats::CLEAN_STALL_TIMES);
@@ -303,15 +303,15 @@ static void handleStatus(int fd) {
   sendResponse(fd, 200, "OK", "application/json", json, n);
 }
 
-// Firmware als Rohdaten im Body (application/octet-stream), z.B. aus der
-// Update-Seite oder per: curl --data-binary @firmware.bin http://otoskop.local/update
+// Firmware as raw data in the body (application/octet-stream), e.g. from the
+// update page or via: curl --data-binary @firmware.bin http://otoskop.local/update
 static void handleUpdate(int fd, const char *req, const uint8_t *body, size_t bodyLen) {
-  if (!authorized(req)) return sendText(fd, 401, "Unauthorized", "Falsches OTA-Passwort");
+  if (!authorized(req)) return sendText(fd, 401, "Unauthorized", "Wrong OTA password");
   size_t total = headerValue(req, "Content-Length").toInt();
-  if (total == 0) return sendText(fd, 411, "Length Required", "Content-Length fehlt");
-  if (updating.exchange(true)) return sendText(fd, 409, "Conflict", "Update läuft bereits");
+  if (total == 0) return sendText(fd, 411, "Length Required", "Content-Length missing");
+  if (updating.exchange(true)) return sendText(fd, 409, "Conflict", "Update already running");
 
-  Serial.printf("[update] Web-Update, %u Byte\n", (unsigned)total);
+  Serial.printf("[update] web update, %u bytes\n", (unsigned)total);
   const char *err = nullptr;
   if (!Update.begin(total, U_FLASH)) {
     err = Update.errorString();
@@ -322,11 +322,11 @@ static void handleUpdate(int fd, const char *req, const uint8_t *body, size_t bo
       done = bodyLen;
     }
     std::unique_ptr<uint8_t[]> chunk(new (std::nothrow) uint8_t[2048]);
-    if (!chunk) err = "Kein Speicher frei";
+    if (!chunk) err = "Out of memory";
     while (!err && done < total) {
       int n = recv(fd, chunk.get(), min((size_t)2048, total - done), 0);
       if (n <= 0) {
-        err = "Verbindung abgebrochen";
+        err = "Connection aborted";
         break;
       }
       if (Update.write(chunk.get(), n) != (size_t)n) err = Update.errorString();
@@ -338,31 +338,31 @@ static void handleUpdate(int fd, const char *req, const uint8_t *body, size_t bo
   if (err) {
     Update.abort();
     updating = false;
-    Serial.printf("[update] Fehler: %s\n", err);
+    Serial.printf("[update] error: %s\n", err);
     char msg[128];
-    snprintf(msg, sizeof(msg), "Update fehlgeschlagen: %s", err);
+    snprintf(msg, sizeof(msg), "Update failed: %s", err);
     return sendText(fd, 500, "Internal Server Error", msg);
   }
-  Serial.println("[update] OK, Neustart");
-  sendText(fd, 200, "OK", "Update erfolgreich, Gerät startet neu");
+  Serial.println("[update] OK, restarting");
+  sendText(fd, 200, "OK", "Update successful, device is restarting");
   delay(500);
   ESP.restart();
 }
 
-// Mitschnitt pro Bild als Text: ms, Größe, RSSI, verlorene Pakete, Kopf-Bytes
+// Orientation stream, see below
 static void handleOrientationLoop(int fd);
 
-// --- WLAN-Modus zur Kamera (umschaltbar über die Update-Seite, im NVS) -----------
-// "bgn": 802.11n mit Paket-Bündelung (schnell, aber ein fehlendes Teilpaket hält den
-//        ganzen Block auf); "bg": ohne 11n, jedes Paket einzeln (Standard);
-// "b":   nur 802.11b, langsam (max. 11 Mbit/s), dafür am robustesten bei schwachem Signal
+// --- Wi-Fi mode towards the camera (switchable on the update page, in NVS) ---------
+// "bgn": 802.11n with packet aggregation (fast, but one missing sub-packet holds up
+//        the whole block); "bg": without 11n, every packet on its own (default);
+// "b":   802.11b only, slow (max. 11 Mbit/s), but most robust with a weak signal
 void wifiApplyMode() {
   int mode = wifiMode;
   uint8_t proto = mode == 2   ? WIFI_PROTOCOL_11B
                   : mode == 1 ? (WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G)
                               : (WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
   esp_wifi_set_protocol(WIFI_IF_STA, proto);
-  if (mode == 0) esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);  // 20 statt 40 MHz
+  if (mode == 0) esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);  // 20 instead of 40 MHz
   esp_wifi_set_max_tx_power(wifiTxQdbm);
 }
 
@@ -379,9 +379,9 @@ static void loadWifiMode() {
 }
 
 static void handleWifiModePost(int fd, const char *path) {
-  if (strncmp(path, "/wifi/tx/", 9) == 0) {  // Sendeleistung, wirkt sofort
+  if (strncmp(path, "/wifi/tx/", 9) == 0) {  // transmit power, takes effect immediately
     int tx = atoi(path + 9);
-    if (tx < 8 || tx > 84) return sendText(fd, 400, "Bad Request", "Sendeleistung 8..84 (x 0,25 dBm)");
+    if (tx < 8 || tx > 84) return sendText(fd, 400, "Bad Request", "Transmit power 8..84 (x 0.25 dBm)");
     Preferences p;
     if (p.begin("otoskop", false)) {
       p.putInt("wifitx", tx);
@@ -389,25 +389,25 @@ static void handleWifiModePost(int fd, const char *path) {
     }
     wifiTxQdbm = tx;
     esp_wifi_set_max_tx_power(tx);
-    crumb("WLAN-Sendeleistung -> %.2f dBm", tx / 4.0);
-    return sendText(fd, 200, "OK", "Sendeleistung gesetzt");
+    crumb("Wi-Fi transmit power -> %.2f dBm", tx / 4.0);
+    return sendText(fd, 200, "OK", "Transmit power set");
   }
   String m = String(path + strlen("/wifi/"));
   int i = wifiModeIndex(m);
-  if (i < 0) return sendText(fd, 400, "Bad Request", "Modus: bgn, bg oder b");
+  if (i < 0) return sendText(fd, 400, "Bad Request", "Mode: bgn, bg or b");
   Preferences p;
   if (p.begin("otoskop", false)) {
     p.putString("wifimode", m);
     p.end();
   }
   wifiMode = i;
-  crumb("WLAN-Modus -> %s, verbinde neu", m.c_str());
-  sendText(fd, 200, "OK", "WLAN-Modus gesetzt, verbinde neu");
-  // Der Protokollwechsel greift erst bei einer neuen Verbindung
-  if (!rescueMode) cameraRestartWifi();  // im Notfall-Modus erst beim nächsten Normalbetrieb
+  crumb("Wi-Fi mode -> %s, reconnecting", m.c_str());
+  sendText(fd, 200, "OK", "Wi-Fi mode set, reconnecting");
+  // The protocol change only takes effect on a new connection
+  if (!rescueMode) cameraRestartWifi();  // in rescue mode only at the next normal operation
 }
 
-// --- Kalibrierung der Lage (JSON, von den Webseiten berechnet, im NVS gespeichert) --
+// --- Orientation calibration (JSON, computed by the web pages, stored in NVS) -----
 static const size_t CALIB_MAX = 1024;
 static std::mutex calibMutex;
 static String calibJson = "{}";
@@ -422,31 +422,31 @@ static void loadCalibration() {
 
 static void handleCalibrationPost(int fd, const char *req, const uint8_t *body, size_t bodyLen) {
   size_t total = headerValue(req, "Content-Length").toInt();
-  if (total == 0 || total > CALIB_MAX) return sendText(fd, 413, "Payload Too Large", "Ungültige Länge");
+  if (total == 0 || total > CALIB_MAX) return sendText(fd, 413, "Payload Too Large", "Invalid length");
   char buf[CALIB_MAX + 1];
   size_t have = min(bodyLen, total);
   memcpy(buf, body, have);
   while (have < total) {
     int n = recv(fd, buf + have, total - have, 0);
-    if (n <= 0) return sendText(fd, 400, "Bad Request", "Verbindung abgebrochen");
+    if (n <= 0) return sendText(fd, 400, "Bad Request", "Connection aborted");
     have += n;
   }
   buf[total] = 0;
-  if (buf[0] != '{' || buf[total - 1] != '}') return sendText(fd, 400, "Bad Request", "Kein JSON-Objekt");
+  if (buf[0] != '{' || buf[total - 1] != '}') return sendText(fd, 400, "Bad Request", "Not a JSON object");
 
   Preferences p;
   bool ok = p.begin("otoskop", false) && p.putString("calib", buf) > 0;
   p.end();
-  if (!ok) return sendText(fd, 500, "Internal Server Error", "Speichern im NVS fehlgeschlagen");
+  if (!ok) return sendText(fd, 500, "Internal Server Error", "Saving to NVS failed");
   {
     std::lock_guard<std::mutex> lock(calibMutex);
     calibJson = buf;
   }
-  crumb("Kalibrierung gespeichert (%u Byte)", (unsigned)total);
-  sendText(fd, 200, "OK", "Gespeichert");
+  crumb("calibration stored (%u bytes)", (unsigned)total);
+  sendText(fd, 200, "OK", "Saved");
 }
 
-// Lage als Server-Sent Events: eine offene Verbindung, neue Werte ~17x pro Sekunde
+// Orientation as server-sent events: one open connection, new values ~17x per second
 static void handleOrientation(int fd) {
   sseClients++;
   handleOrientationLoop(fd);
@@ -461,7 +461,7 @@ static void handleOrientationLoop(int fd) {
   uint32_t lastSeq = 0, lastSend = 0;
   while (!updating) {
     uint32_t seq = telemetry.accSeq;
-    // neue Werte max. 25x/s (das Otoskop liefert ~17); sonst alle 5 s ein Lebenszeichen, damit tote Clients auffallen
+    // new values max. 25x/s (the otoscope delivers ~17); otherwise a keepalive every 5 s so dead clients are noticed
     if ((seq != lastSeq && millis() - lastSend >= 40) || millis() - lastSend >= 5000) {
       char msg[64];
       int n = seq != lastSeq
@@ -472,12 +472,12 @@ static void handleOrientationLoop(int fd) {
       lastSeq = seq;
       lastSend = millis();
     }
-    if (clientClosed(fd)) break;  // Browser hat die Seite verlassen -> Platz sofort frei
+    if (clientClosed(fd)) break;  // browser left the page -> slot free right away
     vTaskDelay(pdMS_TO_TICKS(20));
   }
 }
 
-// Ethernet nur 10 Mbit (1) oder 100 Mbit (0): POST /eth10/<0|1>, im NVS gespeichert
+// Ethernet 10 Mbit only (1) or 100 Mbit (0): POST /eth10/<0|1>, stored in NVS
 static void handleEth10Post(int fd, const char *path) {
   if ((path[7] != '0' && path[7] != '1') || path[8]) return sendText(fd, 400, "Bad Request", "/eth10/<0|1>");
   bool on = path[7] == '1';
@@ -488,13 +488,13 @@ static void handleEth10Post(int fd, const char *path) {
   }
   eth10 = on;
   crumb("eth10 -> %d", on);
-  sendText(fd, 200, "OK", "gesetzt, Ethernet handelt neu aus (Link kurz weg)");
+  sendText(fd, 200, "OK", "set, Ethernet renegotiates (link briefly down)");
   delay(200);
   ethApplySpeed();
 }
 
-// --- Kameraauswahl (/cameras) ------------------------------------------------------
-// Wert aus einem Formular-Body (application/x-www-form-urlencoded), dekodiert
+// --- Camera selection (/cameras) ---------------------------------------------------
+// Value from a form body (application/x-www-form-urlencoded), decoded
 static bool formValue(const char *body, const char *name, char *out, size_t len) {
   size_t nlen = strlen(name);
   for (const char *p = body; p && *p; p = strchr(p, '&') ? strchr(p, '&') + 1 : nullptr) {
@@ -509,7 +509,7 @@ static bool formValue(const char *body, const char *name, char *out, size_t len)
         c = (char)strtol(hex, nullptr, 16);
         p += 2;
       }
-      if (o + 1 >= len) return false;  // zu lang
+      if (o + 1 >= len) return false;  // too long
       out[o++] = c;
     }
     out[o] = 0;
@@ -519,12 +519,12 @@ static bool formValue(const char *body, const char *name, char *out, size_t len)
   return false;
 }
 
-// Formular-Body (max. FORM_MAX Byte) vollständig lesen; false = Antwort schon gesendet
+// Read the complete form body (max. FORM_MAX bytes); false = response already sent
 static const size_t FORM_MAX = 256;
 static bool readForm(int fd, const char *req, const uint8_t *body, size_t bodyLen, char *buf) {
   size_t total = headerValue(req, "Content-Length").toInt();
   if (total == 0 || total > FORM_MAX) {
-    sendText(fd, 413, "Payload Too Large", "Ungültige Länge");
+    sendText(fd, 413, "Payload Too Large", "Invalid length");
     return false;
   }
   size_t have = min(bodyLen, total);
@@ -532,7 +532,7 @@ static bool readForm(int fd, const char *req, const uint8_t *body, size_t bodyLe
   while (have < total) {
     int n = recv(fd, buf + have, total - have, 0);
     if (n <= 0) {
-      sendText(fd, 400, "Bad Request", "Verbindung abgebrochen");
+      sendText(fd, 400, "Bad Request", "Connection aborted");
       return false;
     }
     have += n;
@@ -547,8 +547,8 @@ static void handleWifiSetup(int fd, const char *req, const uint8_t *body, size_t
   formValue(buf, "ssid", ssid, sizeof(ssid));
   formValue(buf, "pass", pass, sizeof(pass));
   if (!rescueSetHome(ssid, pass))
-    return sendText(fd, 400, "Bad Request", "SSID max. 32 Zeichen, Passwort leer oder 8-64 Zeichen");
-  sendText(fd, 200, "OK", !*ssid ? "Heim-WLAN gelöscht" : rescueMode ? "Gespeichert, verbinde…" : "Gespeichert (wird im Notfall-Modus benutzt)");
+    return sendText(fd, 400, "Bad Request", "SSID max. 32 characters, password empty or 8-64 characters");
+  sendText(fd, 200, "OK", !*ssid ? "Home Wi-Fi deleted" : rescueMode ? "Saved, connecting…" : "Saved (used in rescue mode)");
 }
 
 static void handleCameraSelect(int fd, const char *req, const uint8_t *body, size_t bodyLen) {
@@ -559,13 +559,13 @@ static void handleCameraSelect(int fd, const char *req, const uint8_t *body, siz
   formValue(buf, "pass", pass, sizeof(pass));
   formValue(buf, "proto", proto, sizeof(proto));
   if (!cameraSelect(ssid, pass, protoFromKey(proto)))
-    return sendText(fd, 400, "Bad Request", "SSID (max. 32), Passwort (max. 64) oder Protokoll ungültig");
-  sendText(fd, 202, "Accepted", *ssid ? "Verbinde…" : "Auswahl gelöscht, suche automatisch");
+    return sendText(fd, 400, "Bad Request", "Invalid SSID (max. 32), password (max. 64) or protocol");
+  sendText(fd, 202, "Accepted", *ssid ? "Connecting…" : "Selection cleared, choosing automatically");
 }
 
 static void handleCamerasJson(int fd) {
   std::unique_ptr<char[]> json(new (std::nothrow) char[2048]);
-  if (!json) return sendText(fd, 503, "Service Unavailable", "Kein Speicher");
+  if (!json) return sendText(fd, 503, "Service Unavailable", "Out of memory");
   size_t n = cameraJson(json.get(), 2048);
   sendResponse(fd, 200, "OK", "application/json", json.get(), n);
 }
@@ -578,10 +578,10 @@ static void clientTask(void *arg) {
   int one = 1;
   setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
 
-  // Header bis zur Leerzeile lesen; was danach schon im Puffer steht, ist Body
+  // Read the header up to the blank line; whatever follows in the buffer is body
   static const size_t REQ_MAX = 1536;
   std::unique_ptr<char[]> req(new (std::nothrow) char[REQ_MAX + 1]);
-  if (!req) {  // Speicher knapp -> Verbindung ablehnen statt abstürzen
+  if (!req) {  // memory short -> reject the connection instead of crashing
     close(fd);
     clientTasks--;
     vTaskDelete(nullptr);
@@ -597,11 +597,11 @@ static void clientTask(void *arg) {
   }
 
   if (!headerEnd) {
-    if (len > 0) sendText(fd, 400, "Bad Request", "Ungültige Anfrage");
+    if (len > 0) sendText(fd, 400, "Bad Request", "Invalid request");
   } else {
     const uint8_t *body = (const uint8_t *)headerEnd + 4;
     size_t bodyLen = len - (body - (const uint8_t *)req.get());
-    headerEnd[2] = 0;  // Header-Block abschließen, damit headerValue() nicht in den Body sucht
+    headerEnd[2] = 0;  // terminate the header block so headerValue() does not search the body
 
     bool get = strncmp(req.get(), "GET ", 4) == 0;
     bool post = strncmp(req.get(), "POST ", 5) == 0;
@@ -630,7 +630,7 @@ static void clientTask(void *arg) {
         out.put(hdr, h);
         putFrame(out, frame);
         out.flush();
-      } else sendText(fd, 503, "Service Unavailable", "Noch kein Bild empfangen");
+      } else sendText(fd, 503, "Service Unavailable", "No frame received yet");
     } else if (get && strcmp(path, "/app.js") == 0) {
       sendResponse(fd, 200, "OK", "application/javascript; charset=utf-8", APP_JS,
                    sizeof(APP_JS) - 1);
@@ -640,9 +640,9 @@ static void clientTask(void *arg) {
       handleCamerasJson(fd);
     } else if (post && strcmp(path, "/cameras/scan") == 0) {
       cameraRequestScan();
-      sendText(fd, 202, "Accepted", "Suche gestartet");
+      sendText(fd, 202, "Accepted", "Scan started");
     } else if (post && strcmp(path, "/cameras/select") == 0) {
-      if (!authorized(req.get())) sendText(fd, 401, "Unauthorized", "Falsches OTA-Passwort");
+      if (!authorized(req.get())) sendText(fd, 401, "Unauthorized", "Wrong OTA password");
       else handleCameraSelect(fd, req.get(), body, bodyLen);
     } else if (get && strcmp(path, "/calibrate") == 0) {
       sendResponse(fd, 200, "OK", "text/html; charset=utf-8", CALIBRATE_HTML,
@@ -657,18 +657,18 @@ static void clientTask(void *arg) {
     } else if (post && strncmp(path, "/led/", 5) == 0 &&
                (path[5] == '0' || path[5] == '1') && path[6] == '\0') {
       if (!telemetry.ledSupported) {
-        sendText(fd, 501, "Not Implemented", "Diese Kamera hat keine schaltbare LED");
+        sendText(fd, 501, "Not Implemented", "This camera has no switchable LED");
       } else {
-        ledRequest = path[5] == '1';  // die Kamera-Sitzung sendet und wartet auf Bestätigung
-        sendText(fd, 202, "Accepted", "gesendet");
+        ledRequest = path[5] == '1';  // the camera session sends it and waits for confirmation
+        sendText(fd, 202, "Accepted", "sent");
       }
     } else if (post && strncmp(path, "/eth10/", 7) == 0) {
-      if (!authorized(req.get())) sendText(fd, 401, "Unauthorized", "Falsches OTA-Passwort");
+      if (!authorized(req.get())) sendText(fd, 401, "Unauthorized", "Wrong OTA password");
       else handleEth10Post(fd, path);
     } else if (get && strcmp(path, "/wifi-setup") == 0) {
       sendResponse(fd, 200, "OK", "text/html; charset=utf-8", WIFI_SETUP_HTML, sizeof(WIFI_SETUP_HTML) - 1);
     } else if (post && strcmp(path, "/wifi-setup") == 0) {
-      if (!authorized(req.get())) sendText(fd, 401, "Unauthorized", "Falsches OTA-Passwort");
+      if (!authorized(req.get())) sendText(fd, 401, "Unauthorized", "Wrong OTA password");
       else handleWifiSetup(fd, req.get(), body, bodyLen);
     } else if (post && strncmp(path, "/wifi/", 6) == 0 && authorized(req.get())) {
       handleWifiModePost(fd, path);
@@ -682,17 +682,17 @@ static void clientTask(void *arg) {
       handleUpdate(fd, req.get(), body, bodyLen);
     } else if (post && strcmp(path, "/restart") == 0) {
       if (!authorized(req.get())) {
-        sendText(fd, 401, "Unauthorized", "Falsches OTA-Passwort");
+        sendText(fd, 401, "Unauthorized", "Wrong OTA password");
       } else {
-        sendText(fd, 200, "OK", "Gerät startet neu");
+        sendText(fd, 200, "OK", "Device is restarting");
         delay(500);
         ESP.restart();
       }
     } else if (!get && !post) {
-      sendText(fd, 405, "Method Not Allowed", "Nur GET und POST");
+      sendText(fd, 405, "Method Not Allowed", "Only GET and POST");
     } else if (get && rescueApActive()) {
-      // Captive Portal: Handys prüfen beim Verbinden eine Adresse im Internet und
-      // öffnen bei einer Umleitung von selbst die Einrichtungsseite
+      // Captive portal: phones probe an internet address when connecting and open
+      // the setup page by themselves when redirected
       static const char redirect[] =
           "HTTP/1.1 302 Found\r\nLocation: http://192.168.4.1/wifi-setup\r\n"
           "Content-Length: 0\r\nConnection: close\r\n\r\n";
@@ -715,7 +715,7 @@ static void httpTask(void *) {
   setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
   sockaddr_in addr = {};
   addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = htonl(INADDR_ANY);  // Ethernet und (im Notfall) Heim-WLAN
+  addr.sin_addr.s_addr = htonl(INADDR_ANY);  // Ethernet and (in rescue mode) home Wi-Fi
   addr.sin_port = htons(HTTP_PORT);
   bind(srv, (sockaddr *)&addr, sizeof(addr));
   listen(srv, 4);
@@ -726,12 +726,12 @@ static void httpTask(void *) {
       vTaskDelay(pdMS_TO_TICKS(100));
       continue;
     }
-    // Streams, Lage-Events und ein paar Plätze für Seiten, Status und Update
+    // streams, orientation events and a few slots for pages, status and update
     bool started = false;
     if (clientTasks < 2 * MAX_STREAM_CLIENTS + 3) {
-      clientTasks++;  // vorher zählen: der Task kann schon fertig sein, bevor create zurückkehrt
-      // Bei Funk-Einbrüchen hält der WLAN-Treiber kurz viel Heap fest -> kurz warten und
-      // erneut versuchen, statt die Verbindung gleich abzulehnen
+      clientTasks++;  // count beforehand: the task may already be done before create returns
+      // During radio dropouts the Wi-Fi driver briefly holds a lot of heap -> wait a
+      // little and retry instead of rejecting the connection right away
       for (int attempt = 0; attempt < 5 && !started; attempt++) {
         if (attempt) vTaskDelay(pdMS_TO_TICKS(50));
         started = xTaskCreatePinnedToCore(clientTask, "http-client", 6144, (void *)(intptr_t)fd,
@@ -740,34 +740,34 @@ static void httpTask(void *) {
       if (!started) clientTasks--;
     }
     if (!started) {
-      crumb("ausgelastet: %d Tasks, %d Streams, %d Lage, Heap %u/%u", (int)clientTasks,
+      crumb("busy: %d tasks, %d streams, %d orientation, heap %u/%u", (int)clientTasks,
             (int)streamClients, (int)sseClients, heapFree(), heapBlock());
-      sendText(fd, 503, "Service Unavailable", "Ausgelastet");
+      sendText(fd, 503, "Service Unavailable", "Busy");
       close(fd);
     }
   }
 }
 
-// --- Ethernet: Senden erst mit vollständigem Paket im FIFO ------------------------
-// ESP-IDF startet das Senden, sobald 64 Byte im Sende-FIFO liegen. Blockiert währenddessen
-// die WLAN-DMA den Speicherbus, läuft der FIFO leer und das Paket geht verstümmelt raus;
-// der Switch verwirft es, TCP wiederholt erst nach ~1 s (gemessen: nur bei WLAN-Empfang).
-// "Store and Forward" sendet erst, wenn das ganze Paket im FIFO liegt (2 KB = 1 Paket).
+// --- Ethernet: transmit only with a complete packet in the FIFO --------------------
+// ESP-IDF starts transmitting as soon as 64 bytes are in the TX FIFO. If the Wi-Fi DMA
+// blocks the memory bus meanwhile, the FIFO runs empty and the packet goes out mangled;
+// the switch drops it, TCP retransmits only after ~1 s (measured: only with Wi-Fi RX).
+// "Store and forward" transmits only once the whole packet is in the FIFO (2 KB = 1 packet).
 static void ethStoreForward() {
   if (!ETH_TX_STORE_FORWARD || EMAC_DMA.dmaoperation_mode.tx_str_fwd) return;
-  EMAC_DMA.dmaoperation_mode.start_stop_transmission_command = 0;  // Senden anhalten
+  EMAC_DMA.dmaoperation_mode.start_stop_transmission_command = 0;  // stop transmitting
   delay(2);
   EMAC_DMA.dmaoperation_mode.tx_str_fwd = 1;
   EMAC_DMA.dmaoperation_mode.start_stop_transmission_command = 1;
-  crumb("eth: Store and Forward an");
+  crumb("eth: store and forward on");
 }
 
-// --- Ethernet auf 10 Mbit -----------------------------------------------------------
-// Der ESP32 erzeugt den 50-MHz-Takt für den LAN8720 selbst (GPIO17). WLAN-Empfang stört
-// ihn; bei 100 Mbit gehen dann ~2-3 % der Ethernet-Pakete verloren (gemessen, unabhängig
-// von WLAN-Sendeleistung, Puffern und Zigbee). Bei 10 Mbit wird jedes Bit 10 Takte lang
-// gehalten und ist unempfindlich. Umgesetzt über die Aushandlung (nur "10 Mbit Voll-
-// duplex" anbieten), damit der Switch nicht auf Halbduplex zurückfällt.
+// --- Ethernet at 10 Mbit ------------------------------------------------------------
+// The ESP32 generates the 50 MHz clock for the LAN8720 itself (GPIO17). Wi-Fi reception
+// disturbs it; at 100 Mbit ~2-3 % of the Ethernet packets are then lost (measured,
+// independent of Wi-Fi transmit power, buffers and Zigbee). At 10 Mbit every bit is
+// held for 10 clock cycles and is immune. Implemented via auto-negotiation (only offer
+// "10 Mbit full duplex") so the switch does not fall back to half duplex.
 
 static bool phyRead(uint32_t reg, uint32_t &val) {
   esp_eth_phy_reg_rw_data_t rw = {reg, &val};
@@ -782,15 +782,15 @@ static void ethApplySpeed() {
   const uint32_t ANAR = 4, BMCR = 0;
   uint32_t anar = 0, bmcr = 0;
   if (!phyRead(ANAR, anar) || !phyRead(BMCR, bmcr)) return;
-  // Bits 5-8: 10HD, 10FD, 100HD, 100FD; Pause-Bits (10/11) und Selektor bleiben
+  // bits 5-8: 10HD, 10FD, 100HD, 100FD; pause bits (10/11) and selector stay
   uint32_t want = (anar & ~0x01E0u) | (eth10 ? 0x0040u : 0x01E0u);
-  if (want == anar) return;  // schon so ausgehandelt -> keine Endlosschleife
+  if (want == anar) return;  // already negotiated like this -> no endless loop
   phyWrite(ANAR, want);
-  phyWrite(BMCR, bmcr | 0x1000 | 0x0200);  // Aushandlung an + neu starten
-  crumb("eth: biete %s an, handle neu aus", eth10 ? "nur 10 Mbit" : "100 Mbit");
+  phyWrite(BMCR, bmcr | 0x1000 | 0x0200);  // enable + restart auto-negotiation
+  crumb("eth: offering %s, renegotiating", eth10 ? "10 Mbit only" : "100 Mbit");
 }
 
-// --- Netzwerk -------------------------------------------------------------------
+// --- Network --------------------------------------------------------------------
 static void onNetworkEvent(arduino_event_id_t event, arduino_event_info_t info) {
   switch (event) {
     case ARDUINO_EVENT_ETH_START:
@@ -804,26 +804,26 @@ static void onNetworkEvent(arduino_event_id_t event, arduino_event_info_t info) 
     case ARDUINO_EVENT_ETH_GOT_IP:
       Serial.printf("[eth] IP %s\n", ETH.localIP().toString().c_str());
       crumb("eth IP %s, %d Mbit %s", ETH.localIP().toString().c_str(), (int)ETH.linkSpeed(),
-            ETH.fullDuplex() ? "Vollduplex" : "HALBDUPLEX");
+            ETH.fullDuplex() ? "full duplex" : "HALF DUPLEX");
       ethUp = true;
-      ETH.setDefault();  // Standardroute ins Heimnetz, nicht zum Otoskop
+      ETH.setDefault();  // default route into the home network, not to the camera
       break;
     case ARDUINO_EVENT_ETH_DISCONNECTED:
     case ARDUINO_EVENT_ETH_LOST_IP:
-      Serial.println("[eth] getrennt");
-      crumb("eth getrennt (event %d)", (int)event);
+      Serial.println("[eth] disconnected");
+      crumb("eth disconnected (event %d)", (int)event);
       ethUp = false;
       break;
     case ARDUINO_EVENT_WIFI_STA_GOT_IP:
       cameraOnWifiGotIp();
-      crumb("wifi verbunden %s, RSSI %d", WiFi.SSID().c_str(), WiFi.RSSI());
-      Serial.printf("[wifi] verbunden mit %s, IP %s, RSSI %d dBm\n", WiFi.SSID().c_str(),
+      crumb("wifi connected %s, RSSI %d", WiFi.SSID().c_str(), WiFi.RSSI());
+      Serial.printf("[wifi] connected to %s, IP %s, RSSI %d dBm\n", WiFi.SSID().c_str(),
                     WiFi.localIP().toString().c_str(), WiFi.RSSI());
       if (ethUp) ETH.setDefault();
       break;
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
-      Serial.printf("[wifi] getrennt (Grund %u)\n", info.wifi_sta_disconnected.reason);
-      crumb("wifi getrennt, Grund %u", info.wifi_sta_disconnected.reason);
+      Serial.printf("[wifi] disconnected (reason %u)\n", info.wifi_sta_disconnected.reason);
+      crumb("wifi disconnected, reason %u", info.wifi_sta_disconnected.reason);
       break;
     default:
       break;
@@ -836,23 +836,23 @@ static void setLed(int pin, bool on) {
 }
 
 static void startOta() {
-  ArduinoOTA.setHostname(HOSTNAME);  // startet auch mDNS -> otoskop.local
+  ArduinoOTA.setHostname(HOSTNAME);  // also starts mDNS -> otoskop.local
   if (strlen(OTA_PASSWORD) > 0) ArduinoOTA.setPassword(OTA_PASSWORD);
   ArduinoOTA.onStart([]() {
     updating = true;
-    Serial.println("[ota] Update startet");
+    Serial.println("[ota] update starting");
   });
   ArduinoOTA.onError([](ota_error_t) { updating = false; });
   ArduinoOTA.begin();
   IPAddress ip = ethUp ? ETH.localIP() : WiFi.status() == WL_CONNECTED ? WiFi.localIP() : WiFi.softAPIP();
-  Serial.printf("[http] Viewer: http://%s.local/  bzw. http://%s/\n", HOSTNAME,
+  Serial.printf("[http] viewer: http://%s.local/  or http://%s/\n", HOSTNAME,
                 ip.toString().c_str());
 }
 
 void setup() {
   if (LED_GREEN_GPIO >= 0) pinMode(LED_GREEN_GPIO, OUTPUT);
   if (LED_RED_GPIO >= 0) pinMode(LED_RED_GPIO, OUTPUT);
-  setZigbee(false);  // Zigbee wird nicht gebraucht: stumm schalten
+  setZigbee(false);  // Zigbee is not needed: silence it
   setLed(LED_GREEN_GPIO, true);
   setLed(LED_RED_GPIO, false);
 
@@ -873,9 +873,9 @@ void setup() {
   ethBeginOk = ETH.begin(ETH_PHY_LAN8720, ETH_PHY_ADDR_GW, ETH_MDC_GPIO, ETH_MDIO_GPIO, ETH_POWER_GPIO,
             ETH_CLK_MODE_GW);
 
-  Serial.printf("[eth] begin %s\n", ethBeginOk ? "ok" : "FEHLGESCHLAGEN");
+  Serial.printf("[eth] begin %s\n", ethBeginOk ? "ok" : "FAILED");
 
-  cameraBegin();  // WLAN zur Kamera und Video-Task
+  cameraBegin();  // Wi-Fi to the camera and video task
   xTaskCreatePinnedToCore(httpTask, "http", 4096, nullptr, 3, nullptr, 1);
 }
 
@@ -884,12 +884,12 @@ void loop() {
   static uint32_t lastStats = 0, lastFrames = 0;
   static uint32_t ethDownSince = 0, ethUpSince = 0;
 
-  // Notfall-Modus: rein, wenn Ethernet zu lange weg ist; raus per Neustart, wenn es
-  // wieder stabil da ist
+  // Rescue mode: enter when Ethernet is gone too long; leave via restart once it is
+  // stable again
   if (ethUp) {
     ethDownSince = millis();
     if (rescueMode && !updating && millis() - ethUpSince > 10000) {
-      Serial.println("[rescue] Ethernet wieder da -> Neustart in den Normalbetrieb");
+      Serial.println("[rescue] Ethernet is back -> restarting into normal operation");
       delay(200);
       ESP.restart();
     }
@@ -914,9 +914,9 @@ void loop() {
     currentFps = (total - lastFrames) * 1000.0f / (millis() - lastStats);
     lastFrames = total;
     lastStats = millis();
-    Serial.printf("[stats] %.1f fps, %u Bilder, %u verworfen, %d Zuschauer, Heap %u%s\n",
+    Serial.printf("[stats] %.1f fps, %u frames, %u dropped, %d viewers, heap %u%s\n",
                   currentFps, (unsigned)total, (unsigned)stats.framesDropped, (int)streamClients,
-                  heapFree(), rescueMode ? ", NOTFALL-MODUS" : "");
+                  heapFree(), rescueMode ? ", RESCUE MODE" : "");
   }
   delay(10);
 }

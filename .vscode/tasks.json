@@ -47,7 +47,7 @@
       "problemMatcher": []
     },
     {
-      "label": "Build-Umgebung einrichten",
+      "label": "Set up build environment",
       "type": "shell",
       "command": "./setup-build-env.sh",
       "options": { "cwd": "${workspaceFolder}" },

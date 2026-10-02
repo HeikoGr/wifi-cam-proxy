@@ -1,140 +1,140 @@
-# Firmware: WiFi-Cam-Proxy auf ZB-GW03 v1.4 / WT32-ETH01
+# Firmware: WiFi-Cam-Proxy on ZB-GW03 v1.4 / WT32-ETH01 (and CYD)
 
-Der ZB-GW03 (ESP32 + LAN8720, eigentlich ein Zigbee-Gateway) verbindet sich per WLAN mit einer Kamera und liefert das Bild über Ethernet ins Heimnetz. Erkannt wird die Kamera am WLAN-Namen, siehe [Kameras](#kameras). Für Otoskope mit Lagesensor gibt es im Browser eine Lagekorrektur, die das Bild mitdreht, wenn der Stift gedreht wird.
+The ZB-GW03 (ESP32 + LAN8720, originally a Zigbee gateway) connects to a camera via Wi-Fi and delivers the image into the home network over Ethernet. The camera is recognised by its Wi-Fi name, see [Cameras](#cameras). For otoscopes with an orientation sensor, the browser offers an orientation correction that rotates the image along when the probe is turned. The CYD variant shows the image on its own display instead (`src/main_cyd.cpp`, see the [project README](../README.md)).
 
-Stand 30.09.2026: Stabil bei 17 fps, auch mit Zuschauer. Aussetzer gibt es nur noch, wenn das WLAN-Signal des Stifts schwach wird (ab etwa −70 dBm).
+As of 2026-09-30: stable at 17 fps, also with a viewer. Dropouts only occur when the probe's Wi-Fi signal gets weak (from about −70 dBm).
 
-## Bedienung
+## Usage
 
-| Adresse | Zweck |
+| Address | Purpose |
 |---|---|
-| `http://otoskop.local/` | Live-Bild mit Lagekorrektur, Akku, LED und Snapshot |
-| `/cameras` | gefundene Kameras, Auswahl, neu suchen (JSON: `/cameras.json`) |
-| `/stream` | MJPEG für VLC oder Home Assistant (ungedreht) |
-| `/snapshot` | aktuelles Einzelbild (JPEG) |
-| `/calibrate` | Lage kalibrieren: Kreis-Aufzeichnung, Vierteldrehungen, Nullpunkt, Glättung |
-| `/update` | Status, WLAN-Modus, Firmware-Update, Neustart |
-| `/status` | alle Zähler als JSON |
-| `/wifi-setup` | Heim-WLAN für den Notfall-Modus einrichten (auch über den eigenen Access Point) |
+| `http://otoskop.local/` | live image with orientation correction, 2× zoom, battery, LED and snapshot |
+| `/cameras` | cameras found, selection, rescan (JSON: `/cameras.json`) |
+| `/stream` | MJPEG for VLC or Home Assistant (unrotated) |
+| `/snapshot` | current single frame (JPEG) |
+| `/calibrate` | calibrate orientation: circle recording, quarter turns, zero point, smoothing |
+| `/update` | status, Wi-Fi mode, Ethernet speed, firmware update, restart |
+| `/status` | all counters as JSON |
+| `/wifi-setup` | set up the home Wi-Fi for rescue mode (also via the own access point) |
 
-## Kameras
+## Cameras
 
-Die Firmware sucht per WLAN-Scan nach Kameras. Die Namensmuster stehen in `SSID_PATTERNS` in [src/camera.cpp](src/camera.cpp):
+The firmware looks for cameras with a Wi-Fi scan. The name patterns are in `SSID_PATTERNS` in [src/camera.cpp](src/camera.cpp):
 
-1. Die zuletzt verbundene Kamera (NVS `cam_ssid`) wird beim Start ohne Scan direkt angesprochen.
-2. Ist sie nicht erreichbar, wird gesucht. Ist genau eine erkannte, offene Kamera in Reichweite, wird diese genommen.
-3. Sind mehrere in Reichweite, zeigt die Startseite einen Hinweis, und unter `/cameras` wählst du eine aus. Bis dahin wird alle 20 s neu gesucht.
+1. The last connected camera (NVS `cam_ssid`) is contacted directly at startup without a scan.
+2. If it cannot be reached, a scan runs. If exactly one recognised, open camera is in range, that one is taken.
+3. If several are in range, the start page shows a hint and you pick one under `/cameras`. Until then a new scan runs every 20 s.
 
-Unter `/cameras` lässt sich auch ein unbekanntes Netz wählen. Mit dem Protokoll „automatisch“ gilt dann: Gateway `192.168.29.1` bedeutet MaxSee/JHCMD, sonst wird i4season verwendet. Ein Kamera-Passwort ist ebenfalls möglich.
+Under `/cameras` you can also choose an unknown network. With the protocol "automatic" the rule is: gateway `192.168.29.1` means MaxSee/JHCMD, otherwise i4season is used. A camera password is possible as well.
 
-| Protokoll | Datei | Video | Extras |
+| Protocol | File | Video | Extras |
 |---|---|---|---|
-| i4season | [src/cam_i4season.cpp](src/cam_i4season.cpp) | GetDeviceInfo :10005, START :10006, 16/28-Byte-Kopf | Lagesensor (wenn Kopf-Flag gesetzt), Akku aus Devinfo und Status-Push :10007, LED (`0x0A`, Payload `11 01 64` / `11 00 00`) |
-| JHCMD (MaxSee) | [src/cam_jhcmd.cpp](src/cam_jhcmd.cpp) | `JHCMD` an :20000, Video an festen Port 10900, 8-Byte-Kopf | – |
+| i4season | [src/cam_i4season.cpp](src/cam_i4season.cpp) | GetDeviceInfo :10005, START :10006, 16/28-byte header | orientation sensor (if the header flag is set), battery from devinfo and status push :10007, LED (`0x0A`, payload `11 01 64` / `11 00 00`) |
+| JHCMD (MaxSee) | [src/cam_jhcmd.cpp](src/cam_jhcmd.cpp) | `JHCMD` to :20000, video to the fixed port 10900, 8-byte header | – |
 
-Nur die Sitzung der aktiven Kamera belegt RAM, der Protokoll-Code liegt im Flash.
+Only the session of the active camera occupies RAM, the protocol code lives in flash.
 
-LEDs: **Grün** heißt, die Firmware läuft. **Rot** heißt Notfall-Modus.
+LEDs: **green** means the firmware is running. **Red** means rescue mode.
 
-## Konfiguration
+## Configuration
 
-- [include/config.h](include/config.h): Pins, Zeitgrenzen, Standardwerte
-- `include/secrets.h` (Vorlage [secrets.example.h](include/secrets.example.h)), optional: `OTA_PASSWORD`, `SETUP_AP_PASSWORD`, Heim-WLAN als Vorgabe
-- **NVS** (Namespace `otoskop`) speichert Laufzeit-Einstellungen. Sie überstehen Neustart und Firmware-Update:
+- [include/config.h](include/config.h): pins, timeouts, defaults
+- `include/secrets.h` (template [secrets.example.h](include/secrets.example.h)), optional: `OTA_PASSWORD`, `SETUP_AP_PASSWORD`, home Wi-Fi as a default
+- **NVS** (namespace `otoskop`) stores runtime settings. They survive restarts and firmware updates:
 
-| Schlüssel | Inhalt | ändern über |
+| Key | Content | Change via |
 |---|---|---|
-| `calib` | Lage-Kalibrierung (JSON) | `/calibrate` → „Auf Gerät speichern“ |
-| `cam_ssid`, `cam_pass`, `cam_proto` | zuletzt verbundene Kamera | `/cameras` |
-| `wifimode` | `bgn`, `bg` oder `b` | `/update` → „WLAN zur Kamera“ |
-| `wifitx` | WLAN-Sendeleistung in 0,25 dBm | `POST /wifi/tx/<8..84>` |
-| `eth10` | Ethernet nur 10 Mbit (Standard: ZB-GW03 an, WT32-ETH01 aus) | `/update` bzw. `POST /eth10/<0\|1>` |
-| `home_ssid`, `home_pass` | Heim-WLAN für den Notfall-Modus | `/wifi-setup` |
+| `calib` | orientation calibration (JSON) | `/calibrate` → "Save on device" |
+| `cam_ssid`, `cam_pass`, `cam_proto` | last connected camera | `/cameras` |
+| `wifimode` | `bgn`, `bg` or `b` | `/update` → "Wi-Fi to the camera" |
+| `wifitx` | Wi-Fi transmit power in 0.25 dBm | `POST /wifi/tx/<8..84>` |
+| `eth10` | Ethernet 10 Mbit only (default: on for ZB-GW03, off for WT32-ETH01) | `/update` or `POST /eth10/<0\|1>` |
+| `home_ssid`, `home_pass` | home Wi-Fi for rescue mode | `/wifi-setup` |
 
-Die Kalibrierung sichern und zurückspielen:
+Back up and restore the calibration:
 
 ```
-curl http://otoskop.local/calibration > kalibrierung.json
-curl -H "Content-Type: application/json" --data-binary @kalibrierung.json http://otoskop.local/calibration
+curl http://otoskop.local/calibration > calibration.json
+curl -H "Content-Type: application/json" --data-binary @calibration.json http://otoskop.local/calibration
 ```
 
-## Bauen
+## Building
 
 ```
 pio run -e zb-gw03
 ```
 
-Die [platformio.ini](platformio.ini) nutzt **pioarduino** (Arduino-Core 3.x auf ESP-IDF 5.5) mit `custom_sdkconfig`. Damit werden die Arduino-Bibliotheken mit eigenen ESP-IDF-Einstellungen neu gebaut:
+The [platformio.ini](platformio.ini) uses **pioarduino** (Arduino core 3.x on ESP-IDF 5.5) with `custom_sdkconfig`. This rebuilds the Arduino libraries with custom ESP-IDF settings:
 
-| Einstellung | Wert | Grund |
+| Setting | Value | Reason |
 |---|---|---|
-| `CONFIG_BT_ENABLED` | `n` | Bluetooth wird nicht genutzt. Spart ~14 KB IRAM, dort liegen die Bilddaten, und RAM |
-| `CONFIG_LWIP_UDP_RECVMBOX_SIZE` | `32` (statt 6) | Das Otoskop schickt die 15–30 Pakete eines Bildes als Burst. Mit 6 lief der Puffer über |
+| `CONFIG_BT_ENABLED` | `n` | Bluetooth is not used. Saves ~14 KB of IRAM, where the frame data lives, and RAM |
+| `CONFIG_LWIP_UDP_RECVMBOX_SIZE` | `32` (instead of 6) | The otoscope sends the 15–30 packets of a frame as a burst. With 6 the buffer overflowed |
 
-Ändert sich `custom_sdkconfig`, baut der nächste Build ESP-IDF neu. Das dauert etwa 4 Minuten, danach geht es wieder schnell.
+If `custom_sdkconfig` changes, the next build rebuilds ESP-IDF. That takes about 4 minutes, afterwards it is fast again.
 
-## Firmware aktualisieren
+## Updating the firmware
 
-- **Im Browser:** `http://otoskop.local/update`, dann `.pio/build/zb-gw03/firmware.bin` wählen (nicht `firmware.factory.bin`).
-- **Per Kommandozeile:** `pio run -e zb-gw03-http -t upload`, das entspricht `curl --data-binary @firmware.bin http://otoskop.local/update`.
-- **Per espota:** `pio run -e zb-gw03-ota -t upload`.
+- **In the browser:** `http://otoskop.local/update`, then choose `.pio/build/zb-gw03/firmware.bin` (not `firmware.factory.bin`).
+- **On the command line:** `pio run -e zb-gw03-http -t upload`, which corresponds to `curl --data-binary @firmware.bin http://otoskop.local/update`.
+- **Via espota:** `pio run -e zb-gw03-ota -t upload`.
 
-Ist `OTA_PASSWORD` gesetzt, gilt es für alle Wege. Bei curl gibst du es als Header `X-OTA-Password` mit. Während eines Updates gehen kurz Videopakete verloren, weil der Flash beschrieben wird. Das ist normal.
+If `OTA_PASSWORD` is set, it applies to all routes. With curl you pass it as the header `X-OTA-Password`. During an update some video packets are lost briefly because the flash is being written. That is normal.
 
-## Notfall-Modus
+## Rescue mode
 
-Hat Ethernet 30 s keine IP, geht die rote LED an und das Gerät wechselt in den Notfall-Modus:
+If Ethernet has no IP for 30 s, the red LED turns on and the device switches to rescue mode:
 
-1. Ist ein Heim-WLAN eingerichtet, verbindet es sich damit. Weboberfläche und OTA bleiben dann unter `otoskop.local` erreichbar. Das Heim-WLAN stellst du unter `/wifi-setup` ein, dann steht es im NVS. Ersatzweise nimmt das Gerät `HOME_WIFI_SSID` aus `secrets.h`.
-2. Ist keins eingerichtet oder ist es 30 s lang nicht erreichbar, öffnet das Gerät einen eigenen Access Point `WiFi-Cam-XXXX` (Passwort `SETUP_AP_PASSWORD`, Standard `wificam-setup`). Nach dem Verbinden öffnet das Handy die Einrichtungsseite von selbst (Captive Portal), sonst rufst du `http://192.168.4.1/wifi-setup` auf. Dort suchst du nach Netzen und speicherst das Heim-WLAN, das Gerät verbindet sich sofort. Bei laufendem AP versucht es das Heim-WLAN alle 5 Minuten erneut, solange niemand mit dem AP verbunden ist.
-3. Ist Ethernet 10 s stabil zurück, startet das Gerät neu in den Normalbetrieb.
+1. If a home Wi-Fi is set up, it connects to it. The web UI and OTA then stay reachable under `otoskop.local`. You set the home Wi-Fi under `/wifi-setup`, it is then stored in NVS. As a fallback the device uses `HOME_WIFI_SSID` from `secrets.h`.
+2. If none is set up or it cannot be reached for 30 s, the device opens its own access point `WiFi-Cam-XXXX` (password `SETUP_AP_PASSWORD`, default `wificam-setup`). After connecting, the phone opens the setup page by itself (captive portal), otherwise open `http://192.168.4.1/wifi-setup`. There you scan for networks and store the home Wi-Fi; the device connects right away. While the AP is running, it retries the home Wi-Fi every 5 minutes as long as nobody is connected to the AP.
+3. Once Ethernet has been back stably for 10 s, the device restarts into normal operation.
 
-Die Kamera ruht im Notfall-Modus, weil das WLAN dann für die Erreichbarkeit gebraucht wird.
+The camera is idle in rescue mode because Wi-Fi is then needed for reachability.
 
-## Notfall per USB-UART (3,3 V)
+## Emergency via USB-UART (3.3 V)
 
-1. Gehäuse öffnen und den Adapter an TX, RX, GND und 3V3 anschließen (TX↔RX gekreuzt).
-2. GPIO0 beim Einschalten auf GND legen, damit der ESP32 im Bootloader startet.
-3. Flashen mit `pio run -e zb-gw03 -t upload --upload-port /dev/ttyUSB0`.
-4. Serielle Ausgabe mit `pio device monitor`.
+1. Open the case and connect the adapter to TX, RX, GND and 3V3 (TX↔RX crossed).
+2. Pull GPIO0 to GND at power-on so the ESP32 starts in the bootloader.
+3. Flash with `pio run -e zb-gw03 -t upload --upload-port /dev/ttyUSB0`.
+4. Serial output with `pio device monitor`.
 
-Der Umstieg von ESPHome lief per OTA über den ESPHome-Port: `esphome.espota2.run_ota('zb-gw03.local', 3232, None, Path('.pio/build/zb-gw03/firmware.bin'))`.
+The switch from ESPHome was done via OTA through the ESPHome port: `esphome.espota2.run_ota('zb-gw03.local', 3232, None, Path('.pio/build/zb-gw03/firmware.bin'))`.
 
-## Was im Code steckt und warum
+## What is in the code and why
 
-Die Maßnahmen wurden am Gerät gemessen, mit Mitschnitten auf der Heimnetz-Seite. Bei jeder steht in [src/main.cpp](src/main.cpp) ein Kommentar.
+The measures were measured on the device, with captures on the home network side. Each has a comment in the code ([src/main.cpp](src/main.cpp), [src/cam_i4season.cpp](src/cam_i4season.cpp), [src/frame.cpp](src/frame.cpp)).
 
-| Problem | Ursache | Lösung |
+| Problem | Cause | Fix |
 |---|---|---|
-| Kein Video trotz START-Bestätigung | Das Otoskop braucht vorher GetDeviceInfo | GetDeviceInfo und START vom selben Socket |
-| Absturz beim Streamen | `new` warf `bad_alloc` bei knappem Heap | Bilder mit `malloc`, bei Mangel wird das Bild verworfen |
-| „Ausgelastet“, Bilder wegen Speicher verworfen | `getFreeHeap()` zählt 44 KB IRAM mit, die nicht normal nutzbar sind. Echt frei waren oft nur ~11 KB | Bilder liegen als Paketliste im **IRAM-Rest**, gelesen und geschrieben wortweise. Die Anzeige zeigt jetzt nur echten Speicher |
-| Verlorene WLAN-Pakete | UDP-Puffer nur 6 Pakete, `WiFi.RSSI()` im Video-Task hat gebremst | Puffer 32, RSSI nur noch 2×/s in `loop()`, Video-Task mit Priorität 10 |
-| Blockaden bei Paketverlust | 802.11n bündelt Pakete, ein fehlendes Teil hält den ganzen Block auf | WLAN-Modus `bg` (ohne 11n) |
-| **Stottern: 2–3 % Ethernet-Verlust bei WLAN-Empfang** | Der ESP32 erzeugt den 50-MHz-Takt für den LAN8720 selbst (GPIO17), und der WLAN-Empfang stört ihn. Unabhängig von Sendeleistung, Puffern und Zigbee | **Ethernet nur 10 Mbit** (Aushandlung per PHY-Register). Reicht für 3 Zuschauer |
-| Stottern: Sendepausen von 1 s ohne Verlust | Blockierendes `send()` schläft bei `ERR_MEM` bis zum lwIP-Timer (~1 s) | Nicht blockierend senden, Neuversuch nach 5 ms |
-| Kurze Stillstände des Otoskops | Das Otoskop pausiert bei Funkeinbruch oder von selbst | Nach 200 ms Stille neu verbinden, danach frühestens alle 800 ms |
+| No video despite START confirmation | The otoscope needs GetDeviceInfo first | GetDeviceInfo and START from the same socket |
+| Crash while streaming | `new` threw `bad_alloc` with little heap | Frames via `malloc`, on shortage the frame is dropped |
+| "Busy", frames dropped for memory | `getFreeHeap()` includes 44 KB of IRAM that is not normally usable. Really free was often only ~11 KB | Frames are stored as a packet list in the **IRAM remainder**, read and written word by word. The display now shows only real memory |
+| Lost Wi-Fi packets | UDP buffer only 6 packets, `WiFi.RSSI()` in the video task slowed it down | Buffer 32, no RSSI calls in the video task any more, video task with priority 10 |
+| Blocking on packet loss | 802.11n aggregates packets, one missing part holds up the whole block | Wi-Fi mode `bg` (without 11n) |
+| **Stutter: 2–3 % Ethernet loss during Wi-Fi reception** | The ESP32 generates the 50 MHz clock for the LAN8720 itself (GPIO17), and Wi-Fi reception disturbs it. Independent of transmit power, buffers and Zigbee | **Ethernet 10 Mbit only** (negotiated via PHY register). Enough for 3 viewers |
+| Stutter: 1 s send pauses without loss | A blocking `send()` sleeps on `ERR_MEM` until the lwIP timer (~1 s) | Send non-blocking, retry after 5 ms |
+| Short stalls of the otoscope | The otoscope pauses on radio dropouts or by itself | Reconnect after 200 ms of silence, then at most every 800 ms |
 
-Ausprobiert und ohne Wirkung waren: Lebenszeichen-START alle 5 s, kleinere Sendeblöcke, größerer TCP-Sendepuffer (11 KB), mehr Ethernet-Sendepuffer, Store and Forward im Ethernet-Controller (ist noch an, schadet nicht). Das Zigbee-Modul wird im Reset gehalten, obwohl es die Verluste nicht verursacht hat, weil es nicht gebraucht wird und Strom spart.
+Tried without effect: keepalive START every 5 s, smaller send blocks, larger TCP send buffer (11 KB), more Ethernet transmit buffers, store and forward in the Ethernet controller (still on, does no harm). The Zigbee module is held in reset although it did not cause the losses, because it is not needed and it saves power.
 
-## Diagnose-Werkzeuge
+## Diagnostic tools
 
-| Werkzeug | Zweck |
+| Tool | Purpose |
 |---|---|
-| `/status` | Zähler seit dem Start, unter anderem `stalls_loss`/`stalls_clean`, `free_heap`/`min_heap`/`iram_heap`, `eth_speed`, und `last_crash` mit dem Backtrace des letzten Absturzes |
-| serielle Konsole | Ereignisse (Verbindungen, Stillstände, Kamerawechsel) und alle 5 s fps und Heap |
+| `/status` | counters since start, among them `stalls_loss`/`stalls_clean`, `free_heap`/`min_heap`/`iram_heap`, `eth_speed`, and `last_crash` with the backtrace of the last crash |
+| serial console | events (connections, stalls, camera changes) and fps and heap every 5 s |
 
-`/log`, `/sensor`, `/crashtest` und die Debug-Schalter (`/debug/...`) wurden entfernt, um RAM zu sparen. Allein der Paketkopf-Mitschnitt und die Kopie des Ereignisprotokolls belegten ~6 KB Heap. Der Absturz-Backtrace liegt im RTC-Speicher und kostet keinen Heap, deshalb ist er geblieben.
+`/log`, `/sensor`, `/crashtest` and the debug switches (`/debug/...`) were removed to save RAM. The packet header capture and the copy of the event log alone occupied ~6 KB of heap. The crash backtrace lives in RTC memory and costs no heap, so it stayed.
 
-Einen Backtrace aus `last_crash` löst du so auf. Du brauchst dafür die `firmware.elf` **genau dieser** Firmware:
+Resolve a backtrace from `last_crash` like this. You need the `firmware.elf` of **exactly this** firmware:
 
 ```
 ~/.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32-elf-addr2line -pfiaC \
   -e .pio/build/zb-gw03/firmware.elf 0x4008bf04 0x4008bec9 …
 ```
 
-## Grenzen
+## Limitations
 
-- **Kein PSRAM:** Auf WROVER-Modulen sind GPIO16/17 für PSRAM belegt, hier treiben sie den Ethernet-Chip. Für Bilder und Puffer stehen etwa 120 KB RAM und 58 KB IRAM zur Verfügung.
-- **VLC und Home Assistant bekommen das Rohbild.** Die Lagekorrektur macht nur der Browser, der ESP32 kann JPEGs nicht drehen.
-- **Aussetzer bei schwachem Signal:** Bei ungünstiger Drehlage des Stifts (Antenne) sinkt das Signal auf −70 dBm und weniger. Dann fehlen Pakete, und das lässt sich nur über den Aufstellort des ZB-GW03 verbessern.
+- **No PSRAM:** on WROVER modules GPIO16/17 are used for PSRAM, here they drive the Ethernet chip. About 120 KB of RAM and 58 KB of IRAM are available for frames and buffers.
+- **VLC and Home Assistant get the raw image.** Only the browser does the orientation correction, the ESP32 cannot rotate JPEGs.
+- **Dropouts with a weak signal:** in an unfavourable rotation of the probe (antenna) the signal drops to −70 dBm and below. Packets are then missing, and only the location of the ZB-GW03 can improve that.

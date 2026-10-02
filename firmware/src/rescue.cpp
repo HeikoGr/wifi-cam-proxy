@@ -12,13 +12,13 @@
 #include "config.h"
 #include "crashlog.h"
 
-static std::mutex homeMutex;  // Heim-WLAN: HTTP-Task schreibt, loop liest
+static std::mutex homeMutex;  // home Wi-Fi: HTTP task writes, loop reads
 static char homeSsid[33] = "", homePass[65] = "";
 static std::atomic<bool> connectPending{false};
 static std::atomic<bool> apActive{false};
-static DNSServer *dns = nullptr;  // nur im Notfall-Modus angelegt
-static uint32_t staSince = 0;     // Beginn des Versuchs bzw. zuletzt verbunden
-static bool staTrying = false;    // Heim-WLAN wird gerade versucht (Auto-Reconnect an)
+static DNSServer *dns = nullptr;  // only created in rescue mode
+static uint32_t staSince = 0;     // start of the attempt or last connected
+static bool staTrying = false;    // home Wi-Fi is being tried (auto-reconnect on)
 
 void rescueBegin() {
   Preferences p;
@@ -27,7 +27,7 @@ void rescueBegin() {
     strlcpy(homePass, p.getString("home_pass", "").c_str(), sizeof(homePass));
     p.end();
   }
-  if (!*homeSsid) {  // Vorgabe aus secrets.h
+  if (!*homeSsid) {  // default from secrets.h
     strlcpy(homeSsid, HOME_WIFI_SSID, sizeof(homeSsid));
     strlcpy(homePass, HOME_WIFI_PASSWORD, sizeof(homePass));
   }
@@ -56,7 +56,7 @@ static void connectHome() {
   staSince = millis();
   staTrying = *ssid;
   if (!*ssid) return;
-  Serial.printf("[rescue] verbinde mit Heim-WLAN \"%s\"\n", ssid);
+  Serial.printf("[rescue] connecting to home Wi-Fi \"%s\"\n", ssid);
   WiFi.disconnect();
   WiFi.setAutoReconnect(true);
   WiFi.begin(ssid, *pass ? pass : nullptr);
@@ -65,29 +65,29 @@ static void connectHome() {
 static void startAp() {
   char ssid[33];
   rescueApSsid(ssid, sizeof(ssid));
-  // Verbindungsversuche ins Heim-WLAN wechseln den Kanal und stören den AP: anhalten,
-  // rescueLoop() versucht es in Abständen erneut, solange niemand am AP hängt
+  // Connection attempts to the home Wi-Fi switch channels and disturb the AP: stop them,
+  // rescueLoop() retries at intervals while nobody is connected to the AP
   WiFi.setAutoReconnect(false);
   WiFi.disconnect();
   WiFi.mode(WIFI_AP_STA);
   WiFi.softAP(ssid, strlen(SETUP_AP_PASSWORD) >= 8 ? SETUP_AP_PASSWORD : nullptr);
   dns = new (std::nothrow) DNSServer;
-  if (dns) dns->start(53, "*", WiFi.softAPIP());  // jede Adresse -> wir (Captive Portal)
+  if (dns) dns->start(53, "*", WiFi.softAPIP());  // every address -> us (captive portal)
   apActive = true;
   staTrying = false;
   staSince = millis();
-  Serial.printf("[rescue] Access Point \"%s\" an, Einrichtung unter http://%s/wifi-setup\n", ssid,
+  Serial.printf("[rescue] access point \"%s\" on, setup at http://%s/wifi-setup\n", ssid,
                 WiFi.softAPIP().toString().c_str());
-  crumb("Setup-AP %s an", ssid);
+  crumb("setup AP %s on", ssid);
 }
 
 void rescueEnter() {
   rescueMode = true;
-  esp_wifi_scan_stop();  // falls die Kamerasuche gerade läuft
+  esp_wifi_scan_stop();  // in case the camera scan is running
   WiFi.scanDelete();
   char ssid[33];
   rescueHomeSsid(ssid, sizeof(ssid));
-  Serial.printf("[rescue] Ethernet ohne IP -> %s\n", *ssid ? "Heim-WLAN" : "eigener Access Point");
+  Serial.printf("[rescue] Ethernet without IP -> %s\n", *ssid ? "home Wi-Fi" : "own access point");
   if (*ssid) connectHome();
   else startAp();
 }
@@ -100,7 +100,7 @@ void rescueLoop() {
   if (connectPending.exchange(false)) {
     connectHome();
   } else if (staTrying && !connected && millis() - staSince > RESCUE_STA_TIMEOUT_MS) {
-    // Heim-WLAN nicht erreichbar: AP öffnen bzw. (AP läuft schon) Versuche anhalten
+    // home Wi-Fi unreachable: open the AP or (AP already running) stop the attempts
     staTrying = false;
     if (!apActive) {
       startAp();
@@ -110,7 +110,7 @@ void rescueLoop() {
     }
   } else if (apActive && !staTrying && !connected && WiFi.softAPgetStationNum() == 0 &&
              millis() - staSince > RESCUE_STA_RETRY_MS) {
-    connectHome();  // vielleicht war nur der Router kurz weg
+    connectHome();  // maybe the router was just briefly gone
   }
 }
 
@@ -128,7 +128,7 @@ bool rescueSetHome(const char *ssid, const char *pass) {
     p.putString("home_pass", pass);
     p.end();
   }
-  crumb("Heim-WLAN gespeichert: %s", ssid);
+  crumb("home Wi-Fi stored: %s", ssid);
   if (rescueMode && *ssid) connectPending = true;
   return ok;
 }

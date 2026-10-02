@@ -3,10 +3,9 @@
 #include <Arduino.h>
 #include <stddef.h>
 
-// Letzter Absturz als Text ("" wenn keiner seit dem Einschalten)
+// Last crash as text ("" if none since power-on)
 void crashlogFormat(char *out, size_t len);
-void crashlogInit();  // früh in setup() aufrufen
+void crashlogInit();  // call early in setup()
 
-// Ereignis auf die serielle Konsole schreiben (printf-Format)
+// Write an event to the serial console (printf format)
 void crumb(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
-

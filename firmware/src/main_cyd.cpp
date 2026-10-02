@@ -1,24 +1,24 @@
 /*
- * WiFi-Cam-Viewer für das CYD "Cheap Yellow Display" (ESP32-2432S028R)
+ * WiFi-Cam-Viewer for the CYD "Cheap Yellow Display" (ESP32-2432S028R)
  *
- * Statt Ethernet und Webserver zeigt das CYD das Kamerabild direkt auf seinem
- * 320x240-Display. Kameraerkennung, Protokolle und Bildspeicher sind dieselben wie
- * bei der Ethernet-Bridge (camera.cpp, cam_*.cpp, frame.cpp).
+ * Instead of Ethernet and a web server, the CYD shows the camera image directly on
+ * its 320x240 display. Camera detection, protocols and frame store are the same as
+ * in the Ethernet bridge (camera.cpp, cam_*.cpp, frame.cpp).
  *
- *   Video-Task (Core 1, Prio 10)    empfängt und setzt JPEGs zusammen (wie gehabt)
- *   Display-Task (Core 0, Prio 1)   dekodiert immer das neueste Bild und zeigt es an.
- *                                   Ist er langsamer als die Kamera, fallen Bilder
- *                                   von selbst weg (es gibt nur "das neueste").
- *   loop()                          Kamerasuche und -verbindung (cameraLoop)
+ *   Video task (core 1, prio 10)    receives and assembles JPEGs (as before)
+ *   Display task (core 0, prio 1)   always decodes the newest frame and shows it.
+ *                                   If it is slower than the camera, frames drop
+ *                                   out by themselves (there is only "the newest").
+ *   loop()                          camera scan and connection (cameraLoop)
  *
- * Zoom "1:1" (Standard): der mittlere Ausschnitt in voller Auflösung, JPEGDEC
- * überspringt die Blöcke außerhalb (setCropArea). Zoom "Ganz": direkt verkleinert
- * dekodiert (480x480 -> 240x240, 1280x720 -> 320x180). Gelesen wird in beiden Fällen
- * aus der Paketliste, ohne das Bild am Stück zu kopieren.
+ * Zoom "1:1" (default): the centre crop at full resolution, JPEGDEC skips the
+ * blocks outside it (setCropArea). Zoom "fit": decoded directly at reduced size
+ * (480x480 -> 240x240, 1280x720 -> 320x180). In both cases it reads from the packet
+ * list without copying the frame into one piece.
  *
- * Bedienung: Tippen aufs Bild öffnet das Menü (LED, Lagekorrektur, Zoom, Kamera
- * wählen, Helligkeit). Die Lagekorrektur dreht in 90°-Schritten; beliebige Winkel bräuchten
- * einen Bildpuffer, für den ohne PSRAM der Speicher fehlt.
+ * Usage: tapping the image opens the menu (LED, orientation correction, zoom, choose
+ * camera, brightness). Orientation correction rotates in 90° steps; arbitrary angles
+ * would need a frame buffer, for which there is not enough memory without PSRAM.
  */
 
 #include <Arduino.h>
@@ -28,7 +28,7 @@
 
 #include <math.h>
 
-#define LGFX_ESP32_2432S028  // nur die CYD-Varianten erkennen, nicht alle Boards
+#define LGFX_ESP32_2432S028  // detect only the CYD variants, not all boards
 #include <LovyanGFX.hpp>
 #include <LGFX_AUTODETECT.hpp>
 #include <JPEGDEC.h>
@@ -37,26 +37,26 @@
 #include "config.h"
 #include "crashlog.h"
 
-// Von camera.cpp erwartet. Das CYD hat keinen Notfall-Modus und kein OTA.
+// Expected by camera.cpp. The CYD has no rescue mode and no OTA.
 volatile bool rescueMode = false;
 std::atomic<bool> updating{false};
 
 void wifiApplyMode() {
-  // b/g ohne 11n wie bei der Bridge (am Otoskop am robustesten). Die Sendeleistung
-  // bleibt auf Maximum: hier gibt es keinen Ethernet-Takt, den sie stören könnte.
+  // b/g without 11n as in the bridge (most robust with the otoscope). Transmit power
+  // stays at maximum: there is no Ethernet clock here it could disturb.
   esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G);
 }
 
 static LGFX lcd;
-static JPEGDEC *jpeg = nullptr;  // ~18 KB, einmal angelegt
+static JPEGDEC *jpeg = nullptr;  // ~18 KB, allocated once
 
-static const int UI_ROT = 1;  // Querformat 320x240 für Menüs und Touch
+static const int UI_ROT = 1;  // landscape 320x240 for menus and touch
 
-// --- Einstellungen (NVS) ---------------------------------------------------------
-static bool oriOn = true;     // Lagekorrektur an
-static float oriZero = 0;     // Sensorwinkel in der Normallage ("Lage = oben")
+// --- Settings (NVS) ----------------------------------------------------------------
+static bool oriOn = true;     // orientation correction on
+static float oriZero = 0;     // sensor angle in the normal position ("Set upright")
 static uint8_t brightness = 160;
-static bool zoomFull = true;  // 1:1-Ausschnitt statt verkleinertem Gesamtbild
+static bool zoomFull = true;  // 1:1 crop instead of the reduced full image
 
 static void loadSettings() {
   Preferences p;
@@ -80,18 +80,18 @@ static void saveSettings() {
   }
 }
 
-// --- JPEG aus der Paketliste lesen ------------------------------------------------
+// --- Read the JPEG from the packet list ---------------------------------------------
 struct FrameReader {
   Frame frame;
-  int chunk = 0;      // Stück, in dem die letzte Leseposition lag
-  size_t start = 0;   // Byte-Position, an der dieses Stück beginnt
+  int chunk = 0;      // chunk containing the last read position
+  size_t start = 0;   // byte position at which this chunk starts
 };
 static FrameReader reader;
 
 static int32_t jpgRead(JPEGFILE *f, uint8_t *buf, int32_t len) {
   FrameReader *r = (FrameReader *)f->fHandle;
   const Frame &fr = r->frame;
-  if ((size_t)f->iPos < r->start) {  // zurückgesprungen -> von vorn suchen
+  if ((size_t)f->iPos < r->start) {  // jumped back -> search from the start
     r->chunk = 0;
     r->start = 0;
   }
@@ -120,37 +120,37 @@ static int jpgDraw(JPEGDRAW *d) {
   return 1;
 }
 
-// --- Lage -> Drehung in 90°-Schritten -----------------------------------------------
+// --- Orientation -> rotation in 90° steps --------------------------------------------
 static float norm180(float a) { return fmodf(fmodf(a, 360) + 540, 360) - 180; }
 
 static float sensorAngle() {
   return atan2f((float)telemetry.accX, (float)telemetry.accY) * 180 / M_PI;
 }
 
-// Gewünschte Bilddrehung in Grad (im Uhrzeigersinn), wie imageRotation() im Browser:
-// Grunddrehung -90° (Einbaulage der Kamera im Otoskop), mit Lagekorrektur -Lage
+// Desired image rotation in degrees (clockwise), like imageRotation() in the browser:
+// base rotation -90° (mounting of the camera in the otoscope), with correction -angle
 static float wantedRotation() {
-  if (!telemetry.hasOrientation) return 0;  // Mikroskop o.ä.: Bild wie geliefert
+  if (!telemetry.hasOrientation) return 0;  // microscope etc.: image as delivered
   float rot = -90;
   if (oriOn) rot -= norm180(sensorAngle() - oriZero);
   return rot;
 }
 
-// Viertelumdrehungen mit Hysterese: erst bei 55° Abweichung umschalten, sonst würde
-// das Bild an der 45°-Grenze flackern
+// Quarter turns with hysteresis: switch only at 55° deviation, otherwise the image
+// would flicker at the 45° boundary
 static int quarterTurns(float rot, int current) {
   if (current >= 0 && fabsf(norm180(rot - current * 90)) < 55) return current;
   return ((int)lroundf(rot / 90) % 4 + 4) % 4;
 }
 
-// --- Anzeige ----------------------------------------------------------------------
+// --- Display ----------------------------------------------------------------------
 enum class Screen { Live, Menu, Choose };
 static Screen screen = Screen::Live;
 static uint32_t screenSince = 0;
-static int quarter = -1;              // aktuelle Drehung des Bildes
-static int lastW = 0, lastH = 0, lastRot = -1;  // Bildgeometrie, für Rand löschen
+static int quarter = -1;              // current rotation of the image
+static int lastW = 0, lastH = 0, lastRot = -1;  // image geometry, for clearing the border
 static uint32_t drawnFrames = 0;
-static uint32_t lastFrameAt = 0;  // für den Hinweis "kein Signal"
+static uint32_t lastFrameAt = 0;  // for the "no signal" hint
 static float shownFps = 0;
 static char statusShown[64] = "";
 
@@ -170,11 +170,11 @@ static bool drawFrame(const Frame &f) {
 
   int W = jpeg->getWidth(), H = jpeg->getHeight();
   int dw = lcd.width(), dh = lcd.height();
-  int w, h, opt, dx, dy;  // sichtbare Größe, Dekodier-Option, Position für decode()
+  int w, h, opt, dx, dy;  // visible size, decode option, position for decode()
   if (zoomFull && (W > dw || H > dh)) {
-    // 1:1: mittlerer Ausschnitt. JPEGDEC richtet den Ausschnitt auf ganze Blöcke
-    // (8/16 Pixel) aus; decode() bekommt die Bildschirmposition dieser Blockkante,
-    // damit die Bildmitte genau in der Displaymitte liegt.
+    // 1:1: centre crop. JPEGDEC aligns the crop to whole blocks (8/16 pixels);
+    // decode() gets the screen position of that block edge, so the image centre
+    // lands exactly in the display centre.
     w = min(W, dw);
     h = min(H, dh);
     jpeg->setCropArea((W - w) / 2, (H - h) / 2, w, h);
@@ -184,7 +184,7 @@ static bool drawFrame(const Frame &f) {
     dy = dh / 2 - H / 2 + ay;
     opt = 0;
   } else {
-    // Ganz: größte Verkleinerung (1, 1/2, 1/4, 1/8), bei der das Bild aufs Display passt
+    // Fit: largest scale (1, 1/2, 1/4, 1/8) at which the image fits the display
     static const int OPTS[] = {0, JPEG_SCALE_HALF, JPEG_SCALE_QUARTER, JPEG_SCALE_EIGHTH};
     int i = 0;
     while (i < 3 && (W >> i > dw || H >> i > dh)) i++;
@@ -197,14 +197,14 @@ static bool drawFrame(const Frame &f) {
   int x = (dw - w) / 2, y = (dh - h) / 2;
 
   lcd.startWrite();
-  if (w != lastW || h != lastH || rot != lastRot) {  // Geometrie geändert -> Rand löschen
+  if (w != lastW || h != lastH || rot != lastRot) {  // geometry changed -> clear the border
     lcd.fillScreen(TFT_BLACK);
     lastW = w;
     lastH = h;
     lastRot = rot;
     statusShown[0] = 0;
   }
-  lcd.setClipRect(x, y, w, h);  // Randblöcke nicht über das Bild hinaus malen
+  lcd.setClipRect(x, y, w, h);  // do not paint edge blocks beyond the image
   jpeg->decode(dx, dy, opt);
   lcd.clearClipRect();
   lcd.endWrite();
@@ -214,17 +214,17 @@ static bool drawFrame(const Frame &f) {
   return true;
 }
 
-// Akku und fps im freien Rand (links neben quadratischen, über breiten Bildern),
-// bei 1:1 ohne Rand oben links ins Bild (nach jedem Bild neu, sonst übermalt)
+// Battery and fps in the free border (left of square images, above wide ones); at
+// 1:1 without a border, top left into the image (redrawn after every frame)
 static void drawOverlay() {
   char line1[16] = "", line2[16];
   if (telemetry.battery >= 0) snprintf(line1, sizeof(line1), "%d%%", (int)telemetry.battery);
-  bool stale = millis() - lastFrameAt > 3000;  // letztes Bild ist alt
-  snprintf(line2, sizeof(line2), stale ? "alt " : "%.0ffps", shownFps);
+  bool stale = millis() - lastFrameAt > 3000;  // last frame is old
+  snprintf(line2, sizeof(line2), stale ? "old " : "%.0ffps", shownFps);
   lcd.setFont(&fonts::Font0);
   lcd.setTextDatum(top_left);
   lcd.setTextColor(stale ? TFT_RED : TFT_LIGHTGREY, TFT_BLACK);
-  bool side = lastW < lcd.width() - 30;  // seitlicher Rand breit genug?
+  bool side = lastW < lcd.width() - 30;  // side border wide enough?
   if (side) {
     lcd.fillRect(0, 0, 38, 20, TFT_BLACK);
     lcd.drawString(line1, 2, 2);
@@ -248,16 +248,16 @@ static void drawStatus(const char *text) {
   lcd.drawString(text, lcd.width() / 2, lcd.height() / 2 - 12);
   lcd.setFont(&fonts::Font2);
   lcd.setTextColor(TFT_DARKGREY, TFT_BLACK);
-  lcd.drawString("Tippen: Menue", lcd.width() / 2, lcd.height() / 2 + 18);
+  lcd.drawString("Tap: menu", lcd.width() / 2, lcd.height() / 2 + 18);
 }
 
-// --- Menü ---------------------------------------------------------------------------
+// --- Menu ---------------------------------------------------------------------------
 struct Button {
   int16_t x, y, w, h;
   char label[24];
   bool enabled;
 };
-static Button buttons[8];  // Menü: 7, Kamerawahl: 4 Netze + 2
+static Button buttons[8];  // menu: 7, camera choice: 4 networks + 2
 static int buttonCount = 0;
 
 static void addButton(int x, int y, int w, int h, const char *label, bool enabled = true) {
@@ -291,15 +291,15 @@ static void showMenu() {
   buttonCount = 0;
   bool led = telemetry.ledSupported, ori = telemetry.hasOrientation;
   const int W = 152, H = 52, X0 = 6, X1 = 162, Y[] = {6, 64, 122, 180};
-  addButton(X0, Y[0], W, H, !led ? "LED -" : telemetry.led == 1 ? "LED aus" : "LED an", led);
-  addButton(X1, Y[0], W, H, oriOn ? "Lage: an" : "Lage: aus", ori);
-  addButton(X0, Y[1], W, H, "Lage = oben", ori && oriOn);
-  addButton(X1, Y[1], W, H, zoomFull ? "Zoom: 1:1" : "Zoom: ganz");
-  addButton(X0, Y[2], W, H, "Kamera");
+  addButton(X0, Y[0], W, H, !led ? "LED -" : telemetry.led == 1 ? "LED off" : "LED on", led);
+  addButton(X1, Y[0], W, H, oriOn ? "Rotate: on" : "Rotate: off", ori);
+  addButton(X0, Y[1], W, H, "Set upright", ori && oriOn);
+  addButton(X1, Y[1], W, H, zoomFull ? "Zoom: 1:1" : "Zoom: fit");
+  addButton(X0, Y[2], W, H, "Camera");
   char bright[24];
-  snprintf(bright, sizeof(bright), "Licht %d%%", brightness * 100 / 255);
+  snprintf(bright, sizeof(bright), "Light %d%%", brightness * 100 / 255);
   addButton(X1, Y[2], W, H, bright);
-  addButton(X0, Y[3], 308, H, "Zurueck");
+  addButton(X0, Y[3], 308, H, "Back");
 }
 
 static ScanEntry nets[5];
@@ -313,7 +313,7 @@ static void showChoose() {
   lastRot = -1;
   lcd.fillScreen(TFT_BLACK);
   buttonCount = 0;
-  // Nur offene Netze (ohne Tastatur kein Passwort), erkannte Kameras zuerst
+  // Only open networks (no keyboard, no password), recognised cameras first
   ScanEntry all[16];
   int n = cameraNetworks(all, 16);
   netCount = 0;
@@ -331,12 +331,12 @@ static void showChoose() {
     lcd.setFont(&fonts::DejaVu18);
     lcd.setTextDatum(middle_center);
     lcd.setTextColor(TFT_LIGHTGREY);
-    lcd.drawString("Keine offenen Netze", 160, 90);
+    lcd.drawString("No open networks", 160, 90);
   }
-  // Feste Plätze für "Suchen"/"Zurück", damit die Indizes der Netze 0..3 bleiben
+  // Fixed slots for "Rescan"/"Back" so the network indices stay 0..3
   while (buttonCount < 4) buttons[buttonCount++] = {0, 0, 0, 0, "", false};
-  addButton(6, 194, 152, 40, "Neu suchen");
-  addButton(162, 194, 152, 40, "Zurueck");
+  addButton(6, 194, 152, 40, "Rescan");
+  addButton(162, 194, 152, 40, "Back");
 }
 
 static void showLive() {
@@ -375,7 +375,7 @@ static void onTouch(int tx, int ty) {
       lcd.setFont(&fonts::Font2);
       lcd.setTextDatum(middle_center);
       lcd.setTextColor(TFT_YELLOW, TFT_BLACK);
-      lcd.drawString("  suche...  ", 160, 182);
+      lcd.drawString(" scanning... ", 160, 182);
     }
     if (b == 5) return showLive();
   }
@@ -385,7 +385,7 @@ static void displayTask(void *) {
   uint32_t lastSeq = 0, lastTouch = 0, lastOverlay = 0, fpsSince = millis(), fpsFrames = 0;
   bool touching = false;
   for (;;) {
-    // Touch: nur auf die Berührung reagieren, nicht aufs Halten
+    // Touch: react to the touch only, not to holding
     lgfx::touch_point_t tp;
     bool t = lcd.getTouch(&tp) > 0;
     if (t && !touching && millis() - lastTouch > 300) {
@@ -395,9 +395,9 @@ static void displayTask(void *) {
     touching = t;
 
     const char *st = cameraStateKey();
-    if (screen == Screen::Live && !strcmp(st, "choose")) showChoose();  // mehrere Kameras
+    if (screen == Screen::Live && !strcmp(st, "choose")) showChoose();  // several cameras
     if (screen != Screen::Live) {
-      // Menü schließt sich von selbst; die Kameraliste frischt sich nach dem Scan auf
+      // the menu closes by itself; the camera list refreshes after the scan
       if (millis() - screenSince > CYD_MENU_TIMEOUT_MS && strcmp(st, "choose")) showLive();
       else if (screen == Screen::Choose && millis() - screenSince > 4000 && strcmp(st, "scanning") &&
                !netCount)
@@ -421,14 +421,14 @@ static void displayTask(void *) {
       char text[64];
       char ssid[33];
       cameraCurrentSsid(ssid, sizeof(ssid));
-      if (!strcmp(st, "connected")) snprintf(text, sizeof(text), "Warte auf Bild...");
-      else if (!strcmp(st, "connecting")) snprintf(text, sizeof(text), "Verbinde %.20s", ssid);
-      else snprintf(text, sizeof(text), "Suche Kamera...");
+      if (!strcmp(st, "connected")) snprintf(text, sizeof(text), "Waiting for image...");
+      else if (!strcmp(st, "connecting")) snprintf(text, sizeof(text), "Connecting %.20s", ssid);
+      else snprintf(text, sizeof(text), "Looking for camera...");
       drawStatus(text);
       vTaskDelay(pdMS_TO_TICKS(50));
       continue;
     } else {
-      vTaskDelay(pdMS_TO_TICKS(5));  // auf das nächste Bild warten
+      vTaskDelay(pdMS_TO_TICKS(5));  // wait for the next frame
     }
     f.reset();
 
@@ -437,7 +437,7 @@ static void displayTask(void *) {
       fpsFrames = 0;
       fpsSince = millis();
     }
-    if (drew || millis() - lastOverlay >= 1000) {  // nach jedem Bild, sonst 1x/s
+    if (drew || millis() - lastOverlay >= 1000) {  // after every frame, else 1x/s
       lastOverlay = millis();
       drawOverlay();
     }
@@ -447,16 +447,16 @@ static void displayTask(void *) {
 // --- Start ------------------------------------------------------------------------
 static void onNetworkEvent(arduino_event_id_t event, arduino_event_info_t info) {
   if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
-    crumb("wifi verbunden %s, RSSI %d", WiFi.SSID().c_str(), WiFi.RSSI());
+    crumb("wifi connected %s, RSSI %d", WiFi.SSID().c_str(), WiFi.RSSI());
     cameraOnWifiGotIp();
   } else if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
-    crumb("wifi getrennt, Grund %u", info.wifi_sta_disconnected.reason);
+    crumb("wifi disconnected, reason %u", info.wifi_sta_disconnected.reason);
   }
 }
 
 void setup() {
   static const int rgb[] = CYD_RGB_LED_PINS;
-  for (int pin : rgb) {  // RGB-LED aus (active LOW)
+  for (int pin : rgb) {  // RGB LED off (active LOW)
     pinMode(pin, OUTPUT);
     digitalWrite(pin, HIGH);
   }
@@ -471,7 +471,7 @@ void setup() {
   lcd.fillScreen(TFT_BLACK);
   jpeg = new (std::nothrow) JPEGDEC;
   if (!jpeg) {
-    lcd.drawString("Kein Speicher fuer JPEG", 10, 10);
+    lcd.drawString("No memory for JPEG", 10, 10);
     for (;;) delay(1000);
   }
 
@@ -486,7 +486,7 @@ void loop() {
   if (millis() - lastStats >= 5000) {
     uint32_t total = stats.framesTotal;
     float dt = (millis() - lastStats) / 1000.0f;
-    Serial.printf("[stats] empfangen %.1f fps, angezeigt %.1f fps, Heap %u (min %u)\n",
+    Serial.printf("[stats] received %.1f fps, shown %.1f fps, heap %u (min %u)\n",
                   (total - lastFrames) / dt, (drawnFrames - lastDrawn) / dt, heapFree(), heapMin());
     lastFrames = total;
     lastDrawn = drawnFrames;

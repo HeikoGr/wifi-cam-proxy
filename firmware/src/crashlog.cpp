@@ -1,7 +1,7 @@
 /*
- * Absturz-Mitschnitt ohne serielle Konsole: Der Arduino-Core ruft bei einem Panic
- * unseren Handler mit fertigem Backtrace auf. Grund, Task und Backtrace landen im
- * RTC-Speicher, der einen Neustart übersteht. Auflösen der Adressen:
+ * Crash capture without a serial console: on a panic the Arduino core calls our
+ * handler with a ready-made backtrace. Reason, task and backtrace are stored in RTC
+ * memory, which survives a restart. Resolving the addresses:
  *   xtensa-esp32-elf-addr2line -pfiaC -e .pio/build/zb-gw03/firmware.elf <PCs>
  */
 
@@ -38,8 +38,8 @@ static void onPanic(arduino_panic_info_t *info, void *) {
 
 void crashlogInit() {
   esp_reset_reason_t r = esp_reset_reason();
-  // Nach Einschalten ist der RTC-Inhalt Zufall; nach sauberem Neustart (z.B. Update)
-  // ist ein alter Absturz nicht mehr relevant
+  // After power-on the RTC content is random; after a clean restart (e.g. update)
+  // an old crash is no longer relevant
   if (r != ESP_RST_PANIC && r != ESP_RST_INT_WDT && r != ESP_RST_TASK_WDT && r != ESP_RST_WDT)
     crash.magic = 0;
   set_arduino_panic_handler(onPanic, nullptr);
@@ -51,17 +51,17 @@ void crashlogFormat(char *out, size_t len) {
   crash.reason[sizeof(crash.reason) - 1] = 0;
   crash.task[sizeof(crash.task) - 1] = 0;
   int n = snprintf(out, len, "%s | Task %s, Core %d | Backtrace%s:", crash.reason, crash.task,
-                      crash.core, crash.corrupt ? " (unvollständig)" : "");
+                      crash.core, crash.corrupt ? " (incomplete)" : "");
   for (int i = 0; i < crash.depth && n < (int)len; i++)
     n += snprintf(out + n, len - n, " 0x%08lx", (unsigned long)crash.pcs[i]);
-  // JSON-sicher machen
+  // Make it JSON-safe
   for (char *p = out; *p; p++)
     if (*p == '"' || *p == '\\' || (uint8_t)*p < 0x20) *p = ' ';
 }
 
-// --- Ereignisse ------------------------------------------------------------------
-// Nur auf die serielle Konsole: ein Ringpuffer im Heap kostete ~3 KB dauerhaft
-// (Kopie des letzten Laufs) und /log beim Abruf bis zu ~9 KB.
+// --- Events ----------------------------------------------------------------------
+// Serial console only: a ring buffer on the heap cost ~3 KB permanently (copy of the
+// previous run) and /log up to ~9 KB while being fetched.
 void crumb(const char *fmt, ...) {
   char buf[96];
   va_list ap;

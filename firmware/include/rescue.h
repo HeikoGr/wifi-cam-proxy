@@ -1,20 +1,20 @@
 #pragma once
 
-// Notfall-Modus: Ethernet hat RESCUE_TIMEOUT_MS lang keine IP.
+// Rescue mode: Ethernet has had no IP for RESCUE_TIMEOUT_MS.
 //
-//   1. Heim-WLAN bekannt (NVS, sonst secrets.h) -> damit verbinden.
-//   2. Klappt das nicht (RESCUE_STA_TIMEOUT_MS) oder ist keins bekannt -> eigener
-//      Access Point "WiFi-Cam-XXXX" mit Captive Portal: /wifi-setup sucht Netze und
-//      speichert das Heim-WLAN (wie der Arduino-WiFiManager).
-//   3. Kommt Ethernet zurück, startet das Gerät neu (main.cpp).
+//   1. Home Wi-Fi known (NVS, else secrets.h) -> connect to it.
+//   2. If that fails (RESCUE_STA_TIMEOUT_MS) or none is known -> own access point
+//      "WiFi-Cam-XXXX" with captive portal: /wifi-setup scans for networks and
+//      stores the home Wi-Fi (like the Arduino WiFiManager).
+//   3. When Ethernet comes back, the device restarts (main.cpp).
 
 #include <stddef.h>
 
-void rescueBegin();      // in setup(): Heim-WLAN aus NVS laden
-void rescueEnter();      // Ethernet weg -> Notfall-Modus
+void rescueBegin();      // in setup(): load home Wi-Fi from NVS
+void rescueEnter();      // Ethernet gone -> rescue mode
 void rescueLoop();       // in loop()
-bool rescueApActive();   // eigener Access Point läuft
-// Heim-WLAN speichern; im Notfall-Modus sofort damit verbinden. Leere SSID = löschen
+bool rescueApActive();   // own access point is running
+// Store home Wi-Fi; in rescue mode connect to it right away. Empty SSID = delete
 bool rescueSetHome(const char *ssid, const char *pass);
 void rescueHomeSsid(char *out, size_t len);
 void rescueApSsid(char *out, size_t len);

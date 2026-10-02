@@ -1,14 +1,14 @@
 #pragma once
 
-// Nach include/secrets.h kopieren und ausfüllen.
+// Copy to include/secrets.h and fill in.
 
-// Heim-WLAN, wird nur im Notfall-Modus benutzt (Ethernet ohne IP). Optional: Es lässt
-// sich auch im Gerät einstellen (/wifi-setup), das hat dann Vorrang.
+// Home Wi-Fi, only used in rescue mode (Ethernet without IP). Optional: it can also
+// be set on the device (/wifi-setup), which then takes precedence.
 #define HOME_WIFI_SSID     ""
 #define HOME_WIFI_PASSWORD ""
 
-// Passwort des Einrichtungs-Access-Points "WiFi-Cam-XXXX" (mind. 8 Zeichen)
-// #define SETUP_AP_PASSWORD "mein-ap-passwort"
+// Password of the setup access point "WiFi-Cam-XXXX" (at least 8 characters)
+// #define SETUP_AP_PASSWORD "my-ap-password"
 
-// Optional: Passwort für Updates (Weboberfläche, curl, espota)
-// #define OTA_PASSWORD    "update-passwort"
+// Optional: password for updates (web UI, curl, espota)
+// #define OTA_PASSWORD    "update-password"

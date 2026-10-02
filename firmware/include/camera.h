@@ -1,12 +1,12 @@
 #pragma once
 
-// Kamera-Schicht: Erkennung (WLAN-Scan nach SSID-Mustern), Verbindung, Protokolle.
+// Camera layer: detection (Wi-Fi scan for SSID patterns), connection, protocols.
 //
-// Speicher: Der Code aller Protokolle liegt im Flash und wird von dort ausgeführt
-// (XIP über den Cache), er kostet also kein RAM. RAM belegen nur Puffer und Zustand,
-// und die gibt es nur für die gerade verbundene Kamera: die Sitzung des aktiven
-// Protokolls wird beim Verbinden mit new angelegt und beim Wechsel wieder gelöscht.
-// Ein Nachladen von Code aus dem Flash ist deshalb nicht nötig.
+// Memory: the code of all protocols lives in flash and is executed from there (XIP
+// via the cache), so it costs no RAM. Only buffers and state occupy RAM, and they
+// exist only for the currently connected camera: the session of the active protocol
+// is created with new on connect and deleted again on change. Loading code from
+// flash on demand is therefore not necessary.
 
 #include <Arduino.h>
 
@@ -15,43 +15,43 @@
 #include "config.h"
 #include "frame.h"
 
-// --- Protokolle -----------------------------------------------------------------
+// --- Protocols ------------------------------------------------------------------
 enum class CamProto : uint8_t {
   None = 0,
-  I4season,  // Soulear/Hopefox-Otoskope, MS5/MAX-VIEW-Mikroskope (UDP 10005/10006)
-  Jhcmd,     // MaxSee/JoyHonest-Mikroskope (UDP 20000/10900, "JHCMD")
+  I4season,  // Soulear/Hopefox otoscopes, MS5/MAX-VIEW microscopes (UDP 10005/10006)
+  Jhcmd,     // MaxSee/JoyHonest microscopes (UDP 20000/10900, "JHCMD")
   Auto = 0xFF,
 };
 const char *protoKey(CamProto p);   // "i4season", "jhcmd", "auto", ""
-const char *protoName(CamProto p);  // für die Weboberfläche
+const char *protoName(CamProto p);  // for the web UI
 CamProto protoFromKey(const char *key);
-// Erkennt die Kamera-Familie am SSID-Namen (Tabelle in camera.cpp), None = unbekannt
+// Recognises the camera family by its SSID (table in camera.cpp), None = unknown
 CamProto protoForSsid(const char *ssid);
 
-// Eine verbundene Kamera. Läuft vollständig im Video-Task.
+// A connected camera. Runs entirely in the video task.
 class CamSession {
  public:
   virtual ~CamSession() = default;
-  // Empfängt höchstens ein Paket, kehrt spätestens nach ~200 ms zurück
+  // Receives at most one packet, returns after ~200 ms at the latest
   virtual void poll(uint8_t *pkt, size_t cap) = 0;
 };
 CamSession *createI4seasonSession(uint32_t camIp);
 CamSession *createJhcmdSession(uint32_t camIp);
 
-// --- Zustand, den Protokolle und Weboberfläche teilen ---------------------------
+// --- State shared by protocols and web UI ---------------------------------------
 struct VideoStats {
   std::atomic<uint32_t> framesTotal{0};
-  std::atomic<uint32_t> framesDropped{0};   // Summe der drei folgenden
-  std::atomic<uint32_t> dropNoMem{0};       // kein Heap für das fertige Bild
-  std::atomic<uint32_t> dropTooBig{0};      // größer als MAX_FRAME_BYTES
-  std::atomic<uint32_t> dropIncomplete{0};  // Paket(e) im Bild verloren
-  std::atomic<uint32_t> packetsLost{0};     // Lücken in der Sequenznummer
-  std::atomic<uint32_t> framesDamaged{0};   // trotz Paketverlust angezeigt
+  std::atomic<uint32_t> framesDropped{0};   // sum of the next three
+  std::atomic<uint32_t> dropNoMem{0};       // no heap for the finished frame
+  std::atomic<uint32_t> dropTooBig{0};      // larger than MAX_FRAME_BYTES
+  std::atomic<uint32_t> dropIncomplete{0};  // packet(s) of the frame lost
+  std::atomic<uint32_t> packetsLost{0};     // gaps in the sequence number
+  std::atomic<uint32_t> framesDamaged{0};   // shown despite packet loss
   std::atomic<uint32_t> maxFrameBytes{0};
   std::atomic<uint32_t> handshakes{0};
   std::atomic<uint32_t> keepalives{0};
-  // Stillstände: mit Paketverlust in den 2 s davor (Funk) oder ohne (Kamera pausiert
-  // von sich aus). Von den sauberen die letzten Zeitpunkte (s seit Start).
+  // Stalls: with packet loss in the 2 s before (radio) or without (camera pauses on
+  // its own). For the clean ones the last points in time (s since start).
   std::atomic<uint32_t> stallsLoss{0};
   std::atomic<uint32_t> stallsClean{0};
   static const int CLEAN_STALL_TIMES = 8;
@@ -59,40 +59,40 @@ struct VideoStats {
 };
 extern VideoStats stats;
 
-// Telemetrie der Kamera, -1 = unbekannt
+// Camera telemetry, -1 = unknown
 struct CamTelemetry {
-  std::atomic<bool> hasOrientation{false};  // Lagesensor liefert Werte
+  std::atomic<bool> hasOrientation{false};  // orientation sensor delivers values
   std::atomic<int16_t> accX{0}, accY{0}, accZ{0};
   std::atomic<uint32_t> accSeq{0};
-  std::atomic<int8_t> battery{-1};          // Akku in %
-  std::atomic<int8_t> charging{-1};         // 1 = lädt (Bedeutung unsicher)
-  std::atomic<int8_t> led{-1};              // letzter von der Kamera bestätigter Zustand
+  std::atomic<int8_t> battery{-1};          // battery in %
+  std::atomic<int8_t> charging{-1};         // 1 = charging (meaning uncertain)
+  std::atomic<int8_t> led{-1};              // last state confirmed by the camera
   std::atomic<bool> ledSupported{false};
-  std::atomic<uint16_t> width{0}, height{0};  // laut Video-Kopf (Soulear meldet falsch 640x480)
-  char vendor[33] = "", product[33] = "", firmware[17] = "";  // unter infoMux
+  std::atomic<uint16_t> width{0}, height{0};  // per video header (Soulear wrongly reports 640x480)
+  char vendor[33] = "", product[33] = "", firmware[17] = "";  // guarded by infoMux
   void reset();
 };
 extern CamTelemetry telemetry;
 extern portMUX_TYPE infoMux;
 
-// LED-Wunsch aus der Weboberfläche (-1 = nichts, 0/1); die Sitzung sendet ihn
+// LED request from the web UI (-1 = none, 0/1); the session sends it
 extern std::atomic<int> ledRequest;
 
-// Aus main.cpp
+// From main.cpp
 extern volatile bool rescueMode;
 extern std::atomic<bool> updating;
-// Darf die Sitzung jetzt Befehle an die Kamera schicken?
+// May the session send commands to the camera right now?
 bool cameraLinkUp();
 
-// --- Kameraverwaltung (camera.cpp) ----------------------------------------------
-void cameraBegin();  // in setup(): NVS laden, Video-Task starten, erste Verbindung
-void cameraLoop();   // in loop(): Scan, Auswahl, Wiederverbinden
+// --- Camera management (camera.cpp) -----------------------------------------------
+void cameraBegin();  // in setup(): load NVS, start video task, first connection
+void cameraLoop();   // in loop(): scan, selection, reconnect
 void cameraOnWifiGotIp();
-void cameraRestartWifi();  // nach Änderung des WLAN-Modus neu verbinden
-// Auswahl aus der Weboberfläche. Leere SSID = Vorgabe löschen, wieder automatisch
+void cameraRestartWifi();  // reconnect after the Wi-Fi mode changed
+// Selection from the web UI. Empty SSID = clear the preference, automatic again
 bool cameraSelect(const char *ssid, const char *pass, CamProto proto);
 void cameraRequestScan();
-// Für Geräte ohne Weboberfläche (CYD): Zustand und Scan-Liste direkt abfragen
+// For devices without a web UI (CYD): query state and scan list directly
 struct ScanEntry {
   char ssid[33];
   int8_t rssi;
@@ -102,7 +102,6 @@ struct ScanEntry {
 const char *cameraStateKey();  // "connected", "connecting", "scanning", "choose", "searching", "restart"
 int cameraNetworks(ScanEntry *out, int max);
 void cameraCurrentSsid(char *out, size_t len);
-// JSON für /cameras in out schreiben, Rückgabe = Länge
+// Write the JSON for /cameras into out, returns the length
 size_t cameraJson(char *out, size_t len);
-const char *cameraSsid();          // verbundene/gewählte Kamera ("" = keine)
-CamProto cameraProto();            // Protokoll der aktiven Sitzung
+CamProto cameraProto();            // protocol of the active session

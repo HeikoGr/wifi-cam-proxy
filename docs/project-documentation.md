@@ -1,0 +1,416 @@
+# Project documentation: WiFi-Cam-Proxy (Soulear otoscope bridge)
+
+As of: 2026-10-01 · Author: HeikoGr
+
+> This documentation is based on the research results in
+> [handover-research.md](handover-research.md) (multi-cam protocol overview) and the
+> verified measurements in [handover-esp32-bridge.md](handover-esp32-bridge.md)
+> (ZB-GW03 implementation).
+
+---
+
+## 1. Overview
+
+A Wi-Fi ear cleaner of the brand **Hopefox** (vendor app "Soulear",
+`com.i4season.bkCamera_soulear`) transmits an MJPEG live image via a proprietary UDP protocol.
+Goal: show the image **without the vendor app** in the browser, VLC and Home Assistant,
+reachable from the whole home network.
+
+Solution: a **ZB-GW03 v1.4** (Zigbee gateway, ESP32 + LAN8720) connects to the otoscope via
+Wi-Fi and provides the image in the home network over Ethernet. A web UI rotates the image
+automatically along with the accelerometer.
+
+```
+[Soulear otoscope] <--Wi-Fi--> [ZB-GW03 ESP32 bridge] <--Ethernet--> [home network]
+ 192.168.1.1                    192.168.178.130                      http://otoskop.local/
+ UDP 10005/10006                 Arduino/pioarduino
+```
+
+Since then the firmware also supports other cameras (detection by SSID, see the
+[README](../README.md)) and the CYD as a display device.
+
+**State (as of 2026-09-30):** stable, 17 fps without dropouts with a good signal.
+516 of 517 frames received, longest pause 92 ms.
+
+---
+
+## 2. Hardware
+
+### 2.1 Soulear otoscope (Hopefox Find T)
+
+| Property | Value |
+|---|---|
+| Chip | BK7231U-XRH-FBPRO (Beken BK7231U, namespace `XRH`) |
+| Firmware | HKV41B |
+| SSID | `Soulear-6b1c9` (open, no password) |
+| IP | `192.168.1.1` (own DHCP server) |
+| Client IP | `192.168.1.10` (via DHCP) |
+| Resolution | 480×480 JPEG (~17–18 fps, 5–41 KB/frame) |
+| Header value | wrongly reports 640×480 in bytes 12–15 |
+
+The vendor app `Soulear` can be blocked via a server call to `yun.simicloud.com`
+and requires a cloud licence check. The own bridge bypasses this completely. Source: static
+app analysis in [rico001/open-web-soulear docs/README-statische-analyse.md](https://github.com/rico001/open-web-soulear).
+
+### 2.2 ZB-GW03 v1.4 (current bridge hardware)
+
+Zigbee gateway, reflashed with our own firmware.
+
+| GPIO | Function |
+|---|---|
+| GPIO17 | 50 MHz clock for the LAN8720 (generated internally → Wi-Fi interference!) |
+| GPIO16 | LAN8720 power enable |
+| GPIO23 | Ethernet MDC |
+| GPIO18 | Ethernet MDIO |
+| GPIO14 | green LED (active LOW) |
+| GPIO15 | red LED (active LOW) |
+| GPIO13 | Zigbee EFR32 nRESET (LOW = in reset, saves power) |
+
+**Critical:** at 100 Mbit Ethernet ~2–3 % of the packets are lost because Wi-Fi reception
+disturbs the 50 MHz clock (GPIO17). Fix: **lock Ethernet to 10 Mbit**
+(enough for 3 simultaneous MJPEG viewers at ~3 Mbit/s each).
+Source: [syssi/esphome-zb-gw03](https://github.com/syssi/esphome-zb-gw03).
+
+### 2.3 Recommended alternative: WT32-ETH01
+
+The WT32-ETH01 board has its **own 50 MHz oscillator** (GPIO0 INPUT), which is independent
+of Wi-Fi reception. This allows 100 Mbit even with Wi-Fi active.
+Supported since the multi-platform extension (`-DBOARD_WT32_ETH01`).
+Source: [egnor/wt32-eth01](https://github.com/egnor/wt32-eth01).
+
+---
+
+## 3. Protocol (i4season / libWifiCamera)
+
+The device speaks the **i4season protocol**, which is also used by Wi-Fi microscopes (MS5, probably
+MAX-VIEW; MaxSee on the other hand speaks JHCMD), ear scopes (AiSee, Suear) and other devices of this family.
+
+### 3.1 Protocol header (12 bytes, little-endian)
+
+```
+Offset  Length  Type  Meaning
+0       4       u32   magic: 0xFFEEFFEE (on the wire: EE FF EE FF)
+4       2       u16   ID (running number, echoed back in the reply)
+6       2       u16   type (command type)
+8       1       u8    unk = 0x01 in requests
+9       1       u8    err = 0x00 = OK
+10      2       u16   length (payload length in bytes)
+```
+
+### 3.2 Command sequence
+
+| Step | Port | Type | Payload | Status |
+|---|---|---|---|---|
+| GetDeviceInfo | UDP 10005 | 0x0001 | – | ✅ verified |
+| START/OpenVideo | UDP 10006 | 0x0004 | 2 bytes own receive port (LE) + `00 00` | ✅ verified |
+| Video data | → own port | – | 16-byte header + JPEG chunk | ✅ verified |
+| LED | UDP 10005 | 0x000A | 3 bytes: op `0x11` (LED 1, write), status 0/1, brightness (`11 01 64` on, `11 00 00` off); reply = new state | ✅ verified on the Find T per king-cake, untested in our firmware |
+| Battery | UDP 10005 / 10007 | 0x0001 / 0x0009 | devinfo byte `0x78 >> 1`; status push to port 10007, payload byte 1 `>> 1` | ⚠️ documented, untested in our firmware |
+
+**Mandatory order:** GetDeviceInfo **must** come from the same socket as START
+(same local IP+port). Without this step the device acknowledges START but sends no video.
+
+The first packet after idle is often lost → always send several times.
+After a START the otoscope needs ~800 ms to start up (no immediate second START!).
+
+Protocol source: [king-cake/otoscope-windows, docs/i4season-protocol.md](https://github.com/king-cake/otoscope-windows/blob/master/docs/i4season-protocol.md)
+– reverse-engineered from `libWifiCamera.so` with Ghidra and verified on a Hopefox Find T.
+
+### 3.3 Video packet header (16 bytes)
+
+| Byte | Meaning |
+|---|---|
+| 0 | always `0x01` (type 1; type 6 = 28-byte header) |
+| 1 | packet number (8 bits, wraps around) |
+| 2 | frame number (8 bits) |
+| 3 | `0x00` normally; `0x01` on the last packet in the reference capture |
+| 4 | number of packets in the frame |
+| 5 | always `0x01`; bit 0 = "has G-sensor" per protocol docs |
+| 6–9 | accelerometer (u32 LE): x = bits 0–9, y = 10–19, z = 20–29; bit 9 = sign, bits 0–8 = magnitude; ~128 ≙ 1 g |
+| 10–11 | constant `0x66 0x90` |
+| 12–15 | `0x80 0x02 0xE0 0x01` (640/480 LE) – incorrect, the real size is 480×480 |
+
+Roll angle = `atan2(x, y)`. The axes have small offsets (x ≈ −7, y ≈ +6).
+The camera is mounted rotated by 90° in the probe → frames are always rotated by −90°.
+
+---
+
+## 4. Firmware architecture
+
+### 4.1 Task distribution
+
+| Task | Core | Priority | Job |
+|---|---|---|---|
+| `videoTask` | core 1 | 10 | creates the session of the active camera protocol: UDP receive, JPEG assembly, orientation, battery, LED |
+| `httpTask` | core 1 | 3 | TCP accept, creates a clientTask per connection |
+| `clientTask` | core 1 | 3 | HTTP request → response |
+| `loop()` | core 1 | 1 | camera scan/selection (`cameraLoop`), rescue mode, ArduinoOTA, FPS statistics |
+| `displayTask` (CYD only) | core 0 | 1 | decodes the newest frame and shows it, touch menu |
+
+### 4.2 Frame store (frame objects)
+
+Frames are **not stored as one contiguous block** but as a list of UDP payloads
+(chunks of ~1.3 KB):
+
+- No large `malloc()` → less heap fragmentation
+- Chunks preferably in the **IRAM remainder** (~44 KB, word-addressable only) → regular heap
+  stays free; word-wise copying via `volatile uint32_t*`
+- Reference counting: HTTP clients hold the frame as long as they are sending it
+
+**IRAM trap:** `getFreeHeap()` includes ~44 KB of IRAM that cannot be used for `malloc()` and
+task stacks. The firmware therefore uses `heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)`.
+
+### 4.3 Non-blocking send
+
+A blocking `send()` sleeps up to **1 s** on `ERR_MEM` (lwIP timer). The firmware sends with
+`MSG_DONTWAIT` and retries after 5 ms on `EAGAIN`/`EWOULDBLOCK`.
+
+### 4.4 ESP-IDF adjustments (`custom_sdkconfig` in platformio.ini)
+
+| Setting | Value | Reason |
+|---|---|---|
+| `CONFIG_BT_ENABLED` | `n` | Bluetooth unused; saves ~14 KB IRAM |
+| `CONFIG_LWIP_UDP_RECVMBOX_SIZE` | `32` (instead of 6) | a whole frame (15–30 packets) fits into the buffer |
+
+On the first build with a changed `custom_sdkconfig` ESP-IDF is rebuilt (~4 min).
+
+### 4.5 Ethernet: 10 Mbit and store-and-forward
+
+**10 Mbit (ZB-GW03):** PHY negotiation set to "10 Mbit full duplex only" (PHY register
+ANAR bits 5–8). Enough for 3 viewers. Switchable at runtime: `/update` or `POST /eth10/<0|1>`.
+
+**Store-and-forward:** enabled via `EMAC_DMA.dmaoperation_mode.tx_str_fwd = 1`.
+Prevents mangled packets during Wi-Fi/DMA memory bus conflicts.
+
+---
+
+## 5. HTTP API
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/` | GET | live image with orientation correction, 2× zoom and LED switch |
+| `/stream` | GET | MJPEG stream (for VLC, Home Assistant) |
+| `/snapshot` | GET | single frame (JPEG) |
+| `/calibrate` | GET | calibrate orientation (circle recording, quarter turns, zero point) |
+| `/calibration` | GET/POST | calibration data as JSON |
+| `/update` | GET | status, Wi-Fi mode, Ethernet speed, firmware update, restart |
+| `/update` | POST | firmware update (binary, `application/octet-stream`) |
+| `/status` | GET | all counters as JSON |
+| `/wifi-setup` | GET/POST | home Wi-Fi for rescue mode (form `ssid`, `pass`) |
+| `/eth10/<0\|1>` | POST | Ethernet 10 Mbit on/off |
+| `/orientation` | GET | server-sent events: orientation sensor ~17×/s |
+| `/led/0`, `/led/1` | POST | camera LED off/on (i4season 0x0A, waits for confirmation) |
+| `/cameras` | GET | choose camera (scan list, selection) |
+| `/cameras.json` | GET | camera state, telemetry (battery, LED, device), scan list |
+| `/cameras/scan` | POST | scan again |
+| `/cameras/select` | POST | form `ssid`, `pass`, `proto` (`auto`/`i4season`/`jhcmd`); empty SSID = clear selection |
+| `/wifi/<bgn\|bg\|b>` | POST | switch the Wi-Fi mode towards the camera |
+| `/wifi/tx/<8..84>` | POST | Wi-Fi transmit power in 0.25 dBm |
+| `/restart` | POST | restart |
+
+**Home Assistant** (MJPEG camera):
+```yaml
+camera:
+  - platform: mjpeg
+    name: Otoscope
+    mjpeg_url: http://otoskop.local/stream
+```
+
+---
+
+## 6. Configuration
+
+### 6.1 Compile time ([firmware/include/config.h](../firmware/include/config.h))
+
+Board selection via `build_flags` in `platformio.ini`:
+- `-DBOARD_ZB_GW03` (default, 10 Mbit limit)
+- `-DBOARD_WT32_ETH01` (100 Mbit, no Zigbee)
+- `-DBOARD_CYD` (display instead of Ethernet)
+
+Important constants:
+
+| Constant | Default | Meaning |
+|---|---|---|
+| `MAX_STREAM_CLIENTS` | 3 | max. simultaneous MJPEG viewers |
+| `STALL_TIMEOUT_MS` | 200 | silence → repeat handshake |
+| `HANDSHAKE_RETRY_MS` | 800 | minimum interval between STARTs |
+| `SHOW_DAMAGED_FRAMES` | 1 | show (1) or drop (0) frames with packet loss |
+| `WIFI_MODE_DEFAULT` | `"bg"` | Wi-Fi mode without 11n (every packet on its own) |
+| `MAX_FRAME_BYTES` / `FRAME_RESERVE_FROM` / `FRAME_HEAP_RESERVE` | 96 / 48 / 40 KB | largest frame; beyond 48 KB only while 40 KB heap remain free |
+
+### 6.2 Runtime (NVS, namespace `otoskop`)
+
+| Key | Content | Set via |
+|---|---|---|
+| `calib` | orientation calibration (JSON) | `/calibrate` |
+| `wifimode` | `bgn`/`bg`/`b` | `/update` |
+| `wifitx` | Wi-Fi transmit power (0.25 dBm) | `POST /wifi/tx/<value>` |
+| `eth10` | Ethernet 10 Mbit (default: on) | `POST /eth10/<0\|1>` |
+| `home_ssid`, `home_pass` | home Wi-Fi for rescue mode | `/wifi-setup` |
+| `cam_ssid`, `cam_pass`, `cam_proto` | last connected camera | `/cameras` |
+| `cyd_ori`, `cyd_zero`, `cyd_zoom`, `cyd_bright` | CYD settings | CYD touch menu |
+
+### 6.3 Secrets ([firmware/include/secrets.h](../firmware/include/secrets.h))
+
+The file `secrets.h` is in `.gitignore` and must **never be committed**.
+Template: [firmware/include/secrets.example.h](../firmware/include/secrets.example.h)
+
+```cpp
+#define HOME_WIFI_SSID     ""                  // optional default, /wifi-setup takes precedence
+#define HOME_WIFI_PASSWORD ""
+// #define SETUP_AP_PASSWORD "my-ap-password"  // setup access point, at least 8 characters
+// #define OTA_PASSWORD    "update-password"   // optional
+```
+
+---
+
+## 7. Building and flashing
+
+### 7.1 VS Code (recommended workflow)
+
+`./setup-build-env.sh` installs PlatformIO into `.venv`; the tasks in
+[.vscode/tasks.json](../.vscode/tasks.json) use it. With the extension **`actboy168.tasks`**
+all tasks appear as buttons in the status bar.
+
+Recommended extensions (in [.vscode/extensions.json](../.vscode/extensions.json)):
+- `actboy168.tasks` – task buttons in the status bar
+- `ms-vscode.cpptools` – C/C++ IntelliSense
+- `ms-vscode.serial-monitor` – serial monitor
+
+**About the PIO IDE extension:** the official `platformio.platformio-ide` extension is very
+heavy and takes very long to load the first time (large PIO Core download). Since this project
+gets by with the PIO CLI alone (`pio run`, `pio device monitor`), the extension is
+**optional**. The CLI is faster and shows the same compiler error messages.
+
+### 7.2 Important build commands
+
+```bash
+cd firmware
+
+# Build
+pio run -e zb-gw03
+
+# First flash (USB-UART, GPIO0 to GND at power-on)
+pio run -e zb-gw03 -t upload --upload-port /dev/ttyUSB0
+
+# OTA via HTTP
+pio run -e zb-gw03-http -t upload
+
+# OTA via espota (ArduinoOTA)
+pio run -e zb-gw03-ota -t upload
+
+# CYD (USB, auto-reset)
+pio run -e cyd -t upload
+
+# Serial monitor
+pio device monitor
+```
+
+### 7.3 OTA update in the browser
+
+`http://otoskop.local/update` → upload `.pio/build/zb-gw03/firmware.bin`
+(**not** `firmware.factory.bin`).
+
+### 7.4 Resolving a backtrace
+
+```bash
+~/.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32-elf-addr2line \
+  -pfiaC -e firmware/.pio/build/zb-gw03/firmware.elf \
+  0x4008bf04 0x4008bec9 …
+```
+
+The `.elf` must match the running firmware (from the same build).
+
+---
+
+## 8. Multi-platform strategy
+
+The firmware compiles for different ESP32 boards. The board is selected via `-DBOARD_<NAME>`
+in `platformio.ini`.
+
+| Board | ETH clock | Max. Ethernet | LED polarity | Zigbee |
+|---|---|---|---|---|
+| ZB-GW03 v1.4 | GPIO17 OUT (internal) | **10 Mbit** (Wi-Fi limit) | active LOW | EFR32, disabled |
+| WT32-ETH01 | GPIO0 IN (external) | 100 Mbit | active HIGH | none |
+| CYD ESP32-2432S028R | – | no Ethernet (display) | RGB LED switched off | none |
+
+For new hardware: WT32-ETH01 recommended (~8 €, no 10 Mbit limit).
+For further boards: a new section in `config.h` and a new `[env:...]` in `platformio.ini`.
+
+---
+
+## 9. Rescue mode
+
+If Ethernet has no IP for 30 s, the red LED turns on and the device switches to rescue mode:
+
+1. If a home Wi-Fi is set up, it connects to it. The web UI and OTA then stay reachable under `otoskop.local`. You set the home Wi-Fi under `/wifi-setup`, it is then stored in NVS. As a fallback the device uses `HOME_WIFI_SSID` from `secrets.h`.
+2. If none is set up or it cannot be reached for 30 s, the device opens its own access point `WiFi-Cam-XXXX` (password `SETUP_AP_PASSWORD`, default `wificam-setup`). After connecting, the phone opens the setup page by itself (captive portal), otherwise open `http://192.168.4.1/wifi-setup`. There you scan for networks and store the home Wi-Fi; the device connects right away. While the AP is running, it retries the home Wi-Fi every 5 minutes as long as nobody is connected to the AP.
+3. Once Ethernet has been back stably for 10 s, the device restarts into normal operation.
+
+The camera is idle in rescue mode because Wi-Fi is then needed for reachability.
+
+---
+
+## 10. Diagnostics
+
+| Source | Content |
+|---|---|
+| `/status` | JSON: all counters since start, `last_crash` = backtrace of the last crash |
+| serial console | events (`/log` and `/sensor` were removed to save ~6 KB heap) |
+| `stalls_loss` | dropouts after packet loss → weak Wi-Fi signal |
+| `stalls_clean` | dropouts without packet loss → otoscope pauses by itself |
+
+---
+
+## 11. LED and battery (new, untested on the own device)
+
+Following [king-cake/otoscope-windows docs/i4season-protocol.md](https://github.com/king-cake/otoscope-windows/blob/master/docs/i4season-protocol.md):
+
+- **LED:** command `0x000A` to **UDP 10005** with 3 bytes (`11 01 64` = on, `11 00 00` = off). The
+  camera replies with the new state. The firmware repeats the command up to 5× at 300 ms intervals
+  until the reply arrives. Only then does the start page show the LED as on or off.
+  (An earlier version sent 1 byte to port 10006, which was wrong.)
+- **Battery:** from the devinfo reply at handshake (byte `0x78 >> 1`) and from the status push the
+  camera sends to UDP 10007 about once per second. Bit 0 probably means "charging".
+
+Shown on the start page, in `/cameras.json` (`battery`, `charging`, `led`) and in `/status`.
+
+---
+
+## 12. Open ideas
+
+| Idea | Source/hint |
+|---|---|
+| Test LED and battery on the device | see section 11 |
+| Lower the resolution for 720p microscopes (`0x0E` SetCameraConfig) | saves RAM; caution, a mode change can block the encoder (MS5) |
+| Query the resolution (`GetCameraConfig`, 0x0D) | caution: a mode change can block the encoder (observed on the MS5) |
+| Put the WT32-ETH01 into operation (100 Mbit, cheaper) | multi-platform already implemented |
+| Keep observing the otoscope's regular pauses | every ~25 s, cause unclear |
+| Set up Home Assistant | `platform: mjpeg`, URL `/stream` |
+| Multi-cam proxy (Linux, several cameras at once) | concept in [handover-research.md](handover-research.md) section 4; other families: EarFairy, JEGOAT, Xylla |
+
+---
+
+## 13. Known limitations
+
+- No PSRAM: GPIO16/17 are used for Ethernet. Only ~120 KB RAM + ~58 KB IRAM.
+- Orientation correction only in the browser (CSS rotation) and on the CYD (90° steps). VLC/Home Assistant get the raw image (−90°).
+- Dropouts at Wi-Fi RSSI < −70 dBm. Fix: place the ZB-GW03 closer to the otoscope.
+- No custom firmware for the otoscope: the BK7231U community has no camera driver.
+
+---
+
+## 14. References
+
+| Source | Relevance |
+|---|---|
+| [pedrodinisf/otoscope-viewer](https://github.com/pedrodinisf/otoscope-viewer) | same hardware (AiSee/BK7231U/XRH), protocol cheat sheet, test fixtures |
+| [Fyfar/ms5-wifi-microscope](https://github.com/Fyfar/ms5-wifi-microscope) | most detailed i4season protocol docs (all types, resolution, LED 0x0A) |
+| [king-cake/otoscope-windows](https://github.com/king-cake/otoscope-windows) | `docs/i4season-protocol.md` (from Ghidra analysis), verified on the Find T |
+| [rico001/open-web-soulear](https://github.com/rico001/open-web-soulear) | Node.js proxy, static app analysis (cloud lock) |
+| [SeanPesce/Suear-Web-Viewer](https://github.com/SeanPesce/Suear-Web-Viewer) | MJPEG mirror for Suear (same family) |
+| [czietz/wifimicroscope](https://github.com/czietz/wifimicroscope) | MaxSee/JoyHonest protocol (`JHCMD`) |
+| [syssi/esphome-zb-gw03](https://github.com/syssi/esphome-zb-gw03) | pinout ZB-GW03 v1.4 |
+| [egnor/wt32-eth01](https://github.com/egnor/wt32-eth01) | pinout WT32-ETH01, ETH_CLOCK_GPIO0_IN |
+| [pioarduino/platform-espressif32](https://github.com/pioarduino/platform-espressif32) | PlatformIO platform with Arduino core 3.x and `custom_sdkconfig` |
+| [Elektroda: Taixen TXW816](https://www.elektroda.com/news/news4129331.html) | BK7231U UART/firmware dump (background) |

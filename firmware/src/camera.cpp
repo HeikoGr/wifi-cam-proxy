@@ -1,16 +1,16 @@
 /*
- * Kameraverwaltung: findet Kameras per WLAN-Scan am SSID-Namen, verbindet sich und
- * startet im Video-Task die Sitzung des passenden Protokolls.
+ * Camera management: finds cameras by SSID in a Wi-Fi scan, connects and starts the
+ * session of the matching protocol in the video task.
  *
- * Auswahl:
- *   1. Die zuletzt verbundene (oder in der Weboberfläche gewählte) Kamera, wenn sie
- *      in Reichweite ist. Beim Start wird sie ohne Scan direkt angesprochen.
- *   2. Sonst: genau eine erkannte Kamera in Reichweite -> diese.
- *   3. Mehrere erkannte Kameras -> warten, bis in der Weboberfläche (/cameras) eine
- *      gewählt wird. Bis dahin wird alle 20 s neu gesucht.
+ * Selection:
+ *   1. The last connected (or selected in the web UI) camera, if it is in range. At
+ *      startup it is contacted directly without a scan.
+ *   2. Otherwise: exactly one recognised camera in range -> that one.
+ *   3. Several recognised cameras -> wait until one is selected in the web UI
+ *      (/cameras). Until then a new scan runs every 20 s.
  *
- * Alle WLAN-Aufrufe laufen in loop() (cameraLoop); die HTTP-Tasks hinterlegen nur
- * Wünsche (Auswahl, Scan), damit sich WiFi.begin()/scan nie überschneiden.
+ * All Wi-Fi calls run in loop() (cameraLoop); the HTTP tasks only leave requests
+ * (selection, scan), so WiFi.begin()/scan never overlap.
  */
 
 #include "camera.h"
@@ -41,24 +41,24 @@ void CamTelemetry::reset() {
   portEXIT_CRITICAL(&infoMux);
 }
 
-// --- Protokolle und SSID-Muster ---------------------------------------------------
-// Präfixe ohne Groß-/Kleinschreibung. Reihenfolge zählt (erster Treffer gewinnt).
-// Quellen: king-cake/otoscope-windows, rico001/open-web-soulear (App-Präfixe),
+// --- Protocols and SSID patterns ---------------------------------------------------
+// Case-insensitive prefixes. Order matters (first match wins).
+// Sources: king-cake/otoscope-windows, rico001/open-web-soulear (app prefixes),
 // Fyfar/ms5-wifi-microscope (MS5), czietz/wifimicroscope (MaxSee).
 struct SsidPattern {
   const char *prefix;
   CamProto proto;
 };
 static const SsidPattern SSID_PATTERNS[] = {
-    {"Soulear", CamProto::I4season},       // Hopefox Find T u.a. (am Gerät verifiziert)
-    {"SUEAR", CamProto::I4season},         // Suear-Ohrreiniger
+    {"Soulear", CamProto::I4season},       // Hopefox Find T and others (verified on the device)
+    {"SUEAR", CamProto::I4season},         // Suear ear cleaners
     {"i4season", CamProto::I4season},
     {"inskam", CamProto::I4season},
     {"Yanxuan", CamProto::I4season},
-    {"wifi_camera_", CamProto::I4season},  // MS5-Mikroskop (wifi_camera_MS5_XXXX)
-    {"MAX-VIEW", CamProto::I4season},      // Vermutung: MAX-VIEW-App ist von i4season
+    {"wifi_camera_", CamProto::I4season},  // MS5 microscope (wifi_camera_MS5_XXXX)
+    {"MAX-VIEW", CamProto::I4season},      // assumption: the MAX-VIEW app is by i4season
     {"MAXVIEW", CamProto::I4season},
-    {"Maxsee", CamProto::Jhcmd},           // MaxSee/JoyHonest, Kamera auf 192.168.29.1
+    {"Maxsee", CamProto::Jhcmd},           // MaxSee/JoyHonest, camera at 192.168.29.1
     {"JH-", CamProto::Jhcmd},
 };
 
@@ -74,8 +74,8 @@ const char *protoName(CamProto p) {
   switch (p) {
     case CamProto::I4season: return "i4season (Soulear, MS5, MAX-VIEW)";
     case CamProto::Jhcmd: return "MaxSee/JoyHonest (JHCMD)";
-    case CamProto::Auto: return "automatisch";
-    default: return "unbekannt";
+    case CamProto::Auto: return "automatic";
+    default: return "unknown";
   }
 }
 CamProto protoFromKey(const char *key) {
@@ -90,8 +90,8 @@ CamProto protoForSsid(const char *ssid) {
   return CamProto::None;
 }
 
-// --- Zustand --------------------------------------------------------------------
-enum class CamState : uint8_t { Off /* neu verbinden */, Connecting, Connected, Scanning, WaitChoice, Idle };
+// --- State ----------------------------------------------------------------------
+enum class CamState : uint8_t { Off /* reconnect */, Connecting, Connected, Scanning, WaitChoice, Idle };
 static const char *stateKey(CamState s) {
   switch (s) {
     case CamState::Connecting: return "connecting";
@@ -105,21 +105,21 @@ static const char *stateKey(CamState s) {
 
 static const int MAX_SCAN = 16;
 
-static std::mutex camMutex;  // schützt alles bis zur Leerzeile
-static std::atomic<CamState> state{CamState::Off};  // auch vom Netzwerk-Event gesetzt
+static std::mutex camMutex;  // guards everything up to the blank line
+static std::atomic<CamState> state{CamState::Off};  // also set by the network event
 static ScanEntry scanList[MAX_SCAN];
 static int scanCount = 0;
-static uint32_t scanAt = 0;           // millis() des letzten Scan-Ergebnisses
+static uint32_t scanAt = 0;           // millis() of the last scan result
 static char prefSsid[33] = "", prefPass[65] = "";
 static CamProto prefProto = CamProto::Auto;
 static char curSsid[33] = "", curPass[65] = "";
-static CamProto curProto = CamProto::Auto;  // gewünscht (Auto möglich)
-static bool selPending = false;              // Auswahl aus der Weboberfläche
+static CamProto curProto = CamProto::Auto;  // requested (Auto possible)
+static bool selPending = false;              // selection from the web UI
 static char selSsid[33], selPass[65];
 static CamProto selProto;
 static std::atomic<bool> scanPending{false};
 
-// Für den Video-Task: aktive Sitzung, wird bei Wechsel über sessionGen neu angelegt
+// For the video task: active session, recreated via sessionGen on change
 static std::atomic<CamProto> activeProto{CamProto::None};
 static std::atomic<uint32_t> activeIp{0};
 static std::atomic<uint32_t> sessionGen{0};
@@ -137,19 +137,19 @@ static void setState(CamState s) {
   if (s == state) return;
   state = s;
   stateSince = millis();
-  crumb("Kamera: %s", stateKey(s));
+  crumb("camera: %s", stateKey(s));
 }
 
-// --- Video-Task -----------------------------------------------------------------
+// --- Video task -----------------------------------------------------------------
 static void videoTask(void *) {
-  static uint8_t pkt[2048] __attribute__((aligned(4)));  // Nutzdaten ab +16 bleiben ausgerichtet
+  static uint8_t pkt[2048] __attribute__((aligned(4)));  // payload at +16 stays aligned
   CamSession *session = nullptr;
   uint32_t gen = 0;
   for (;;) {
     uint32_t want = sessionGen;
     if (want != gen) {
       gen = want;
-      delete session;  // nur die Sitzung der aktiven Kamera belegt RAM
+      delete session;  // only the active camera's session occupies RAM
       session = nullptr;
       clearFrame();
       telemetry.reset();
@@ -160,7 +160,7 @@ static void videoTask(void *) {
         case CamProto::Jhcmd: session = createJhcmdSession(ip); break;
         default: break;
       }
-      crumb("Sitzung: %s", protoKey(activeProto));
+      crumb("session: %s", protoKey(activeProto));
     }
     if (!session) {
       vTaskDelay(pdMS_TO_TICKS(100));
@@ -200,7 +200,7 @@ static void storePref() {
   }
 }
 
-// --- Verbinden / Suchen (nur aus loop) ------------------------------------------
+// --- Connect / scan (from loop only) ----------------------------------------------
 static void connectTo(const char *ssid, const char *pass, CamProto proto) {
   {
     std::lock_guard<std::mutex> lock(camMutex);
@@ -208,8 +208,8 @@ static void connectTo(const char *ssid, const char *pass, CamProto proto) {
     strlcpy(curPass, pass, sizeof(curPass));
     curProto = proto;
   }
-  Serial.printf("[cam] verbinde mit \"%s\" (%s)\n", ssid, protoKey(proto));
-  crumb("Kamera: verbinde %s", ssid);
+  Serial.printf("[cam] connecting to \"%s\" (%s)\n", ssid, protoKey(proto));
+  crumb("camera: connecting %s", ssid);
   WiFi.disconnect();
   wifiApplyMode();
   WiFi.setAutoReconnect(true);
@@ -222,11 +222,11 @@ static void startScan(bool keepConnection) {
     WiFi.setAutoReconnect(false);
     WiFi.disconnect();
   }
-  WiFi.scanNetworks(true, false);  // asynchron, ohne versteckte Netze
+  WiFi.scanNetworks(true, false);  // asynchronous, without hidden networks
   setState(CamState::Scanning);
 }
 
-// Nach einem Scan: Kamera wählen (siehe Kopfkommentar)
+// After a scan: choose a camera (see header comment)
 static void choose() {
   char ssid[33] = "", pass[65] = "";
   CamProto proto = CamProto::Auto;
@@ -256,7 +256,7 @@ static void collectScan(int n) {
   for (int i = 0; i < n && scanCount < MAX_SCAN; i++) {
     String s = WiFi.SSID(i);
     if (s.isEmpty()) continue;
-    bool dup = false;  // dieselbe SSID von mehreren APs nur einmal
+    bool dup = false;  // same SSID from several APs only once
     for (int k = 0; k < scanCount; k++) dup |= s == scanList[k].ssid;
     if (dup) continue;
     ScanEntry &e = scanList[scanCount++];
@@ -270,12 +270,12 @@ static void collectScan(int n) {
 
 void cameraBegin() {
   loadPref();
-  xTaskCreatePinnedToCore(videoTask, "video", 4096, nullptr, 10, nullptr, 1);  // vor HTTP (3)
+  xTaskCreatePinnedToCore(videoTask, "video", 4096, nullptr, 10, nullptr, 1);  // above HTTP (3)
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);  // Modem-Sleep kostet bei UDP-Video Pakete
+  WiFi.setSleep(false);  // modem sleep loses packets with UDP video
   if (*prefSsid) {
-    connectTo(prefSsid, prefPass, prefProto);  // schneller Weg: ohne Scan
+    connectTo(prefSsid, prefPass, prefProto);  // fast path: without a scan
   } else {
     startScan(false);
   }
@@ -290,10 +290,10 @@ void cameraOnWifiGotIp() {
     p = curProto;
     if (p == CamProto::Auto) {
       p = protoForSsid(curSsid);
-      // MaxSee-Kameras sitzen fest auf 192.168.29.1, sonst i4season (192.168.1.1)
+      // MaxSee cameras are fixed at 192.168.29.1, otherwise i4season (192.168.1.1)
       if (p == CamProto::None) p = gw == (uint32_t)IPAddress(192, 168, 29, 1) ? CamProto::Jhcmd : CamProto::I4season;
     }
-    // Gemerkte Kamera aktualisieren (Speichern im NVS erledigt loop)
+    // Update the remembered camera (loop stores it in NVS)
     if (strcmp(prefSsid, curSsid) || strcmp(prefPass, curPass) || prefProto != curProto) {
       strlcpy(prefSsid, curSsid, sizeof(prefSsid));
       strlcpy(prefPass, curPass, sizeof(prefPass));
@@ -302,8 +302,8 @@ void cameraOnWifiGotIp() {
     }
   }
   if (!gw) gw = p == CamProto::Jhcmd ? (uint32_t)IPAddress(192, 168, 29, 1) : (uint32_t)IPAddress(192, 168, 1, 1);
-  // Neue Sitzung nur, wenn sich Kamera oder Adresse geändert hat: nach kurzen
-  // Funkabbrüchen läuft die bestehende Sitzung einfach weiter
+  // New session only if camera or address changed: after short radio dropouts the
+  // existing session simply continues
   if (p != activeProto || gw != activeIp) {
     activeIp = gw;
     activeProto = p;
@@ -316,7 +316,7 @@ void cameraOnWifiGotIp() {
 void cameraLoop() {
   if (savePref.exchange(false)) storePref();
   if (updating) return;
-  if (rescueMode) {  // Kamera ruht; nur Scans für die Einrichtungsseite (/wifi-setup)
+  if (rescueMode) {  // camera idle; only scans for the setup page (/wifi-setup)
     if (state == CamState::Scanning) {
       int n = WiFi.scanComplete();
       if (n == WIFI_SCAN_RUNNING && millis() - stateSince < 15000) return;
@@ -338,7 +338,7 @@ void cameraLoop() {
       strlcpy(ssid, selSsid, sizeof(ssid));
       strlcpy(pass, selPass, sizeof(pass));
       CamProto proto = selProto;
-      if (!*ssid) {  // Vorgabe löschen -> neu suchen und automatisch wählen
+      if (!*ssid) {  // clear preference -> scan again and choose automatically
         prefSsid[0] = prefPass[0] = 0;
         prefProto = CamProto::Auto;
         lock.unlock();
@@ -372,9 +372,9 @@ void cameraLoop() {
     case CamState::Connected:
       if (connected) {
         lostSince = 0;
-        if (scanPending.exchange(false)) startScan(true);  // Scan ohne Trennung (kurzes Ruckeln)
+        if (scanPending.exchange(false)) startScan(true);  // scan without disconnecting (short stutter)
       } else if (!lostSince) {
-        lostSince = millis();  // Auto-Reconnect versucht es erst selbst
+        lostSince = millis();  // auto-reconnect tries on its own first
       } else if (millis() - lostSince > CAM_LOST_RESCAN_MS) {
         lostSince = 0;
         startScan(false);
@@ -383,7 +383,7 @@ void cameraLoop() {
     case CamState::Scanning: {
       int n = WiFi.scanComplete();
       if (n == WIFI_SCAN_RUNNING) {
-        if (millis() - stateSince > 15000) {  // Scan hängt
+        if (millis() - stateSince > 15000) {  // scan stuck
           WiFi.scanDelete();
           setState(CamState::Idle);
         }
@@ -391,7 +391,7 @@ void cameraLoop() {
       }
       if (n >= 0) collectScan(n);
       WiFi.scanDelete();
-      if (connected) {  // Scan auf Wunsch während der Verbindung
+      if (connected) {  // requested scan while connected
         state = CamState::Connected;
         break;
       }
@@ -408,7 +408,7 @@ void cameraLoop() {
 }
 
 void cameraRestartWifi() {
-  setState(CamState::Off);  // loop verbindet neu (Protokolländerung greift erst dann)
+  setState(CamState::Off);  // loop reconnects (protocol change only takes effect then)
 }
 
 bool cameraSelect(const char *ssid, const char *pass, CamProto proto) {
@@ -423,8 +423,8 @@ bool cameraSelect(const char *ssid, const char *pass, CamProto proto) {
 
 void cameraRequestScan() { scanPending = true; }
 
-// --- JSON für /cameras ------------------------------------------------------------
-static size_t jsonStr(char *out, size_t len, const char *s) {  // "…" mit Escapes
+// --- JSON for /cameras ------------------------------------------------------------
+static size_t jsonStr(char *out, size_t len, const char *s) {  // "…" with escapes
   size_t o = 0;
   auto put = [&](char c) {
     if (o + 1 < len) out[o] = c;
