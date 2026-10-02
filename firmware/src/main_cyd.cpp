@@ -16,17 +16,15 @@
  * (480x480 -> 240x240, 1280x720 -> 320x180). In both cases it reads from the packet
  * list without copying the frame into one piece.
  *
- * Usage: tapping the image opens the menu (LED, orientation correction, zoom, choose
- * camera, brightness). Orientation correction rotates in 90° steps; arbitrary angles
- * would need a frame buffer, for which there is not enough memory without PSRAM.
+ * Usage: tapping the image opens the menu (LED, zoom, choose camera, brightness).
+ * There is no orientation correction: in 90° steps (all that is possible without a
+ * frame buffer, i.e. without PSRAM) the image jumped back and forth in the hand.
  */
 
 #include <Arduino.h>
 #include <Preferences.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
-
-#include <math.h>
 
 #define LGFX_ESP32_2432S028  // detect only the CYD variants, not all boards
 #include <LovyanGFX.hpp>
@@ -53,16 +51,12 @@ static JPEGDEC *jpeg = nullptr;  // ~18 KB, allocated once
 static const int UI_ROT = 1;  // landscape 320x240 for menus and touch
 
 // --- Settings (NVS) ----------------------------------------------------------------
-static bool oriOn = true;     // orientation correction on
-static float oriZero = 0;     // sensor angle in the normal position ("Set upright")
 static uint8_t brightness = 160;
 static bool zoomFull = true;  // 1:1 crop instead of the reduced full image
 
 static void loadSettings() {
   Preferences p;
   if (p.begin("otoskop", true)) {
-    oriOn = p.getBool("cyd_ori", true);
-    oriZero = p.getFloat("cyd_zero", 0);
     brightness = p.getUChar("cyd_bright", 160);
     zoomFull = p.getBool("cyd_zoom", true);
     p.end();
@@ -72,8 +66,6 @@ static void loadSettings() {
 static void saveSettings() {
   Preferences p;
   if (p.begin("otoskop", false)) {
-    p.putBool("cyd_ori", oriOn);
-    p.putFloat("cyd_zero", oriZero);
     p.putUChar("cyd_bright", brightness);
     p.putBool("cyd_zoom", zoomFull);
     p.end();
@@ -120,34 +112,18 @@ static int jpgDraw(JPEGDRAW *d) {
   return 1;
 }
 
-// --- Orientation -> rotation in 90° steps --------------------------------------------
-static float norm180(float a) { return fmodf(fmodf(a, 360) + 540, 360) - 180; }
-
-static float sensorAngle() {
-  return atan2f((float)telemetry.accX, (float)telemetry.accY) * 180 / M_PI;
-}
-
-// Desired image rotation in degrees (clockwise), like imageRotation() in the browser:
-// base rotation -90° (mounting of the camera in the otoscope), with correction -angle
-static float wantedRotation() {
-  if (!telemetry.hasOrientation) return 0;  // microscope etc.: image as delivered
-  float rot = -90;
-  if (oriOn) rot -= norm180(sensorAngle() - oriZero);
-  return rot;
-}
-
-// Quarter turns with hysteresis: switch only at 55° deviation, otherwise the image
-// would flicker at the 45° boundary
-static int quarterTurns(float rot, int current) {
-  if (current >= 0 && fabsf(norm180(rot - current * 90)) < 55) return current;
-  return ((int)lroundf(rot / 90) % 4 + 4) % 4;
+// --- Image rotation -------------------------------------------------------------
+// The otoscope camera (recognisable by its orientation sensor) is mounted rotated by
+// 90° in the probe, so its image is always turned by -90° like in the browser. Other
+// cameras (microscope etc.): image as delivered.
+static int imageRotation() {
+  return telemetry.hasOrientation ? (UI_ROT - CYD_ROTATE_DIR + 4) % 4 : UI_ROT;
 }
 
 // --- Display ----------------------------------------------------------------------
 enum class Screen { Live, Menu, Choose };
 static Screen screen = Screen::Live;
 static uint32_t screenSince = 0;
-static int quarter = -1;              // current rotation of the image
 static int lastX = 0, lastY = 0, lastW = 0, lastH = 0, lastRot = -1;  // image geometry
 static const int OVL_SIDE_W = 38;  // overlay in the side border: needs this much width
 static const int OVL_STRIP = 10;   // otherwise a strip this high above the image
@@ -169,8 +145,7 @@ static bool drawFrame(const Frame &f) {
   }
   jpeg->setPixelType(RGB565_BIG_ENDIAN);
 
-  quarter = quarterTurns(wantedRotation(), quarter);
-  int rot = (UI_ROT + CYD_ROTATE_DIR * quarter + 8) % 4;
+  int rot = imageRotation();
   lcd.setRotation(rot);
 
   int W = jpeg->getWidth(), H = jpeg->getHeight();
@@ -316,7 +291,7 @@ static int hitButton(int tx, int ty) {
   return -1;
 }
 
-enum { B_LED, B_ORI, B_ZERO, B_ZOOM, B_CHOOSE, B_BRIGHT, B_BACK };
+enum { B_LED, B_ZOOM, B_CHOOSE, B_BRIGHT, B_BACK };
 
 static void showMenu() {
   screen = Screen::Menu;
@@ -326,17 +301,15 @@ static void showMenu() {
   lastRot = -1;
   lcd.fillScreen(TFT_BLACK);
   buttonCount = 0;
-  bool led = telemetry.ledSupported, ori = telemetry.hasOrientation;
-  const int W = 152, H = 52, X0 = 6, X1 = 162, Y[] = {6, 64, 122, 180};
+  bool led = telemetry.ledSupported;
+  const int W = 152, H = 70, X0 = 6, X1 = 162, Y[] = {6, 84, 162};
   addButton(X0, Y[0], W, H, !led ? "LED -" : telemetry.led == 1 ? "LED off" : "LED on", led);
-  addButton(X1, Y[0], W, H, oriOn ? "Rotate: on" : "Rotate: off", ori);
-  addButton(X0, Y[1], W, H, "Set upright", ori && oriOn);
-  addButton(X1, Y[1], W, H, zoomFull ? "Zoom: 1:1" : "Zoom: fit");
-  addButton(X0, Y[2], W, H, "Camera");
+  addButton(X1, Y[0], W, H, zoomFull ? "Zoom: 1:1" : "Zoom: fit");
+  addButton(X0, Y[1], W, H, "Camera");
   char bright[24];
   snprintf(bright, sizeof(bright), "Light %d%%", brightness * 100 / 255);
-  addButton(X1, Y[2], W, H, bright);
-  addButton(X0, Y[3], 308, H, "Back");
+  addButton(X1, Y[1], W, H, bright);
+  addButton(X0, Y[2], 308, H, "Back");
 }
 
 static ScanEntry nets[5];
@@ -390,8 +363,6 @@ static void onTouch(int tx, int ty) {
   if (screen == Screen::Menu) {
     switch (b) {
       case B_LED: ledRequest = telemetry.led == 1 ? 0 : 1; return showLive();
-      case B_ORI: oriOn = !oriOn; saveSettings(); return showMenu();
-      case B_ZERO: oriZero = sensorAngle(); quarter = -1; saveSettings(); return showLive();
       case B_ZOOM: zoomFull = !zoomFull; saveSettings(); return showMenu();
       case B_CHOOSE: cameraRequestScan(); return showChoose();
       case B_BRIGHT:

@@ -258,7 +258,7 @@ Important constants:
 | `eth10` | Ethernet 10 Mbit (default: on) | `POST /eth10/<0\|1>` |
 | `home_ssid`, `home_pass` | home Wi-Fi for rescue mode | `/wifi-setup` |
 | `cam_ssid`, `cam_pass`, `cam_proto` | last connected camera | `/cameras` |
-| `cyd_ori`, `cyd_zero`, `cyd_zoom`, `cyd_bright` | CYD settings | CYD touch menu |
+| `cyd_zoom`, `cyd_bright` | CYD settings | CYD touch menu |
 
 ### 6.3 Secrets ([firmware/include/secrets.h](../firmware/include/secrets.h))
 
@@ -404,7 +404,7 @@ Shown on the start page, in `/cameras.json` (`battery`, `charging`, `led`) and i
 ## 13. Known limitations
 
 - No PSRAM: GPIO16/17 are used for Ethernet. Only ~120 KB RAM + ~58 KB IRAM.
-- Orientation correction only in the browser (CSS rotation) and on the CYD (90° steps). VLC/Home Assistant get the raw image (−90°).
+- Orientation correction only in the browser (CSS rotation). The CYD always shows the image turned by the fixed −90°, VLC/Home Assistant get the raw image (−90°).
 - Dropouts at Wi-Fi RSSI < −70 dBm. Fix: place the ZB-GW03 closer to the otoscope.
 - No custom firmware for the otoscope: the BK7231U community has no camera driver.
 
