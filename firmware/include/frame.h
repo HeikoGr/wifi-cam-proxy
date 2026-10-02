@@ -116,4 +116,7 @@ class Frame {
 
 void publishFrame(const Frame &frame);
 void clearFrame();  // on camera change: stop showing the old frame
-uint32_t getFrame(Frame &out);
+uint32_t getFrame(Frame &out);  // the stored frame (may be empty) and its sequence number
+// Sequence number only, without taking a reference: a waiting viewer that held the
+// frame just to look would keep releaseIdleFrame() from freeing it
+uint32_t latestFrameSeq();

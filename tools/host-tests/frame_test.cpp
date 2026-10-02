@@ -1,6 +1,7 @@
 // allocChunk with a short heap: a frame beyond FRAME_RESERVE_FROM gets the memory of the
 // stored frame if nobody else holds it, otherwise it is refused (as before).
 #include "camera.h"
+#include <esp_memory_utils.h>
 #include <malloc.h>
 VideoStats stats;
 size_t heapBudget = 0, heapBaseline = 0;
@@ -51,6 +52,44 @@ int main() {
   check("30 KB frame refused when it would cut into the floor", !d);
   check("free heap stays above FRAME_HEAP_FLOOR", heapFree() >= FRAME_HEAP_FLOOR);
   viewer.reset();
+
+  // A waiting stream viewer only looks at the sequence number: that holds no reference,
+  // so the stored frame can still be released for the next one
+  heapBudget = 140 * 1024;
+  publishFrame(build(70 * 1024));
+  uint32_t seq = latestFrameSeq();
+  uint32_t rel0 = stats.framesReleased;
+  Frame e = build(70 * 1024);
+  check("latestFrameSeq() holds no reference (stored one released)", e && stats.framesReleased == rel0 + 1);
+  e.reset();
+  publishFrame(build(1024));
+  check("latestFrameSeq() counts up with every published frame", latestFrameSeq() == seq + 1);
+  clearFrame();
+
+  // Word-wise IRAM copies: every offset/length against memcpy, aligned and unaligned target
+  {
+    fakeIram = true;
+    uint8_t src[64], chunk[68] __attribute__((aligned(4))), back[68] __attribute__((aligned(4)));
+    for (int i = 0; i < 64; i++) src[i] = (uint8_t)(i * 7 + 1);
+    bool okTo = true, okFrom = true;
+    for (size_t len = 0; len <= 64; len++) {
+      memset(chunk, 0xEE, sizeof(chunk));
+      copyToChunk(chunk, src, len);
+      okTo &= !memcmp(chunk, src, len);
+    }
+    copyToChunk(chunk, src, 64);
+    for (size_t off = 0; off <= 64; off++)
+      for (size_t len = 0; off + len <= 64; len++)
+        for (size_t d = 0; d < 4; d++) {
+          memset(back, 0xEE, sizeof(back));
+          copyFromChunk(back + d, chunk, off, len);
+          bool same = !memcmp(back + d, src + off, len) && (!d || back[d - 1] == 0xEE) && back[d + len] == 0xEE;
+          if (!same) okFrom = false;
+        }
+    fakeIram = false;
+    check("copyToChunk word-wise: every length", okTo);
+    check("copyFromChunk word-wise: every offset, length, alignment", okFrom);
+  }
   printf(fails ? "FAIL\n" : "OK\n");
   return fails;
 }

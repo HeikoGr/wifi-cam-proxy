@@ -72,14 +72,29 @@ __attribute__((noinline)) void copyFromChunk(uint8_t *dst, const uint8_t *chunk,
     memcpy(dst, chunk + off, len);
     return;
   }
-  const volatile uint32_t *w = (const volatile uint32_t *)chunk;
-  while (len > 0) {
-    uint32_t v = w[off / 4];
-    size_t b = off % 4, k = min(len, 4 - b);
+  // Whole words in a loop, only the unaligned head and the tail byte by byte: collapseFill
+  // and the CYD's JPEG reader pass every frame through here (MAX-VIEW: ~2 MB/s)
+  const volatile uint32_t *w = (const volatile uint32_t *)chunk + off / 4;
+  if (size_t b = off % 4) {
+    uint32_t v = *w++;
+    size_t k = min(len, 4 - b);
     memcpy(dst, (const uint8_t *)&v + b, k);
     dst += k;
-    off += k;
     len -= k;
+  }
+  if (((uintptr_t)dst & 3) == 0) {
+    uint32_t *d = (uint32_t *)dst;
+    for (; len >= 4; len -= 4) *d++ = *w++;
+    dst = (uint8_t *)d;
+  } else {
+    for (; len >= 4; len -= 4, dst += 4) {
+      uint32_t v = *w++;
+      memcpy(dst, &v, 4);
+    }
+  }
+  if (len) {
+    uint32_t v = *w;  // chunks are allocated in whole words
+    memcpy(dst, &v, len);
   }
 }
 
@@ -115,5 +130,10 @@ void clearFrame() {
 uint32_t getFrame(Frame &out) {
   std::lock_guard<std::mutex> lock(frameMutex);
   out = latestFrame;
+  return frameSeq;
+}
+
+uint32_t latestFrameSeq() {
+  std::lock_guard<std::mutex> lock(frameMutex);
   return frameSeq;
 }

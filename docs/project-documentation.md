@@ -162,6 +162,9 @@ Observed on a MAX-VIEW microscope (`MAXVIEW-7762`, 2026-10-01) with a raw captur
   `d0 01`; the full init again only after 3 s of silence, at most every 3 s. Before, it sent the
   full init after every second of silence: with 98 KB frames that turned into up to one
   handshake per second with hardly a frame in between.
+- **Receive loop:** while the video runs, the command sockets (20000, 20001) and
+  `/camdiag/send` are only looked at every 50 ms, not after each of the ~1500 video packets per
+  second (two empty `recvfrom` calls each); without video right after the 200 ms receive timeout.
 - **LED, client → camera:** `JHCMD 20 02 <0..100>` to UDP 20000, `0` = off. Sniffed with `/sniff`
   while dimming in the MAX-VIEW app (iOS); the app sends every slider value (up to `0x61` seen,
   the camera accepts 100 as well) and the same value as `FDWN 20 00 0e 00 01 00 <v>` to UDP
@@ -244,6 +247,14 @@ Frames are **not stored as one contiguous block** but as a list of UDP payloads
   floor and reserve are both 48 KB; a large frame that does not fit beside the one being
   decoded is dropped (`no mem`), the next one is taken after the decode. `[stats]` shows the
   heap minimum per 5 s interval.
+
+- **Copying out of IRAM:** `copyFromChunk` reads whole words in a loop and handles only the
+  unaligned start and the end byte by byte. `collapseFill` (JHCMD) and the CYD's JPEG reader
+  pass every frame through it.
+- **Waiting stream viewers** only compare the sequence number (`latestFrameSeq()`) and take the
+  frame only when a new one is to be sent. Before, they held the stored frame every 5–10 ms
+  just to look, and during that moment `allocChunk` could not free it (`drop_nomem`). With
+  `STREAM_MAX_FPS` a viewer sleeps for the rest of the interval instead of polling every 5 ms.
 
 **IRAM trap:** `getFreeHeap()` includes ~44 KB of IRAM that cannot be used for `malloc()` and
 task stacks. The firmware therefore uses `heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)`.

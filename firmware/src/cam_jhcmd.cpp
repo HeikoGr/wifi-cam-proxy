@@ -33,6 +33,7 @@ const size_t HDR_LEN = 8;
 const uint32_t JH_STALL_MS = 1000;      // no video this long: heartbeat right away
 const uint32_t JH_REINIT_MS = 3000;     // still nothing: full init again, at most this often
 const uint32_t JH_HEARTBEAT_MS = 3000;  // heartbeat while the video runs
+const uint32_t SIDE_POLL_MS = 50;       // command/status sockets, see poll()
 
 const uint8_t CMD_INIT1[] = {'J', 'H', 'C', 'M', 'D', 0x10, 0x00};
 const uint8_t CMD_INIT2[] = {'J', 'H', 'C', 'M', 'D', 0x20, 0x00};
@@ -115,48 +116,16 @@ class JhcmdSession : public CamSession {
               ntohs(from.sin_port), hex);
     }
     if (n > (int)HDR_LEN) captureRaw(pkt, n);
-    // Messages of the camera on our port 20000 (LED level, device name)
-    uint8_t reply[128];
-    flen = sizeof(from);
-    int r = recvfrom(cmd_, reply, sizeof(reply), MSG_DONTWAIT, (sockaddr *)&from, &flen);
-    if (r > 0) {
-      logReply(reply, r, from);
-      handleMessage(reply, r);
-    }
-    if (fdwn_ >= 0) {
-      flen = sizeof(from);
-      r = recvfrom(fdwn_, reply, sizeof(reply), MSG_DONTWAIT, (sockaddr *)&from, &flen);
-      // "FDWN" 20 00 0e 00 01 00 <level>: same meaning as "JHCMD" 10 20 <level>
-      if (r >= 11 && !memcmp(reply, "FDWN", 4) && reply[4] == 0x20 && reply[6] == 0x0E) {
-        const uint8_t m[8] = {'J', 'H', 'C', 'M', 'D', 0x10, 0x20, reply[10]};
-        handleMessage(m, sizeof(m));
-      } else if (r == (int)FDWN_STATUS_LEN && !memcmp(reply, "FDWN", 4) && reply[6] == 0x01) {
-        handleStatus(reply);
-      }
-      // Status query like the app does (needs the video running = the camera is serving us)
-      if (running_ && cameraLinkUp() && millis() - lastStatusReq_ >= FDWN_POLL_MS) {
-        lastStatusReq_ = millis();
-        sockaddr_in to = camAddr_;
-        to.sin_port = htons(FDWN_PORT);
-        sendto(fdwn_, FDWN_STATUS_REQ, sizeof(FDWN_STATUS_REQ), 0, (sockaddr *)&to, sizeof(to));
-      }
-    }
-    // Experiment from /camdiag/send, sent from the command socket (port 20000)
-    uint8_t out[64];
-    size_t olen = sizeof(out);
-    uint16_t oport;
-    if (cameraLinkUp() && diagSendTake(oport, out, olen)) {
-      sockaddr_in to = camAddr_;
-      to.sin_port = htons(oport);
-      sendto(cmd_, out, olen, 0, (sockaddr *)&to, sizeof(to));
-      char hex[64 * 3 + 1];
-      for (size_t i = 0; i < olen; i++) snprintf(hex + i * 3, 4, "%02x ", out[i]);
-      hex[olen * 3] = 0;
-      diagLog("[jhcmd] %lu ms: sent to port %u: %s", millis(), oport, hex);
+    uint32_t now = millis();
+    bool link = cameraLinkUp();
+    // The other sockets only every SIDE_POLL_MS while the video runs: per video packet
+    // (~1500/s with the MAX-VIEW) they cost two empty recvfrom calls for nothing
+    if (n <= 0 || now - lastSide_ >= SIDE_POLL_MS) {
+      lastSide_ = now;
+      pollSide(link);
     }
 
-    uint32_t now = millis();
-    if (cameraLinkUp()) {
+    if (link) {
       if (now - lastData_ > JH_STALL_MS) {  // no video
         if (running_) {
           stats.stallsLoss++;
@@ -268,6 +237,51 @@ class JhcmdSession : public CamSession {
   }
 
  private:
+  // Messages of the camera on port 20000 and 20001 (LED level, device name, battery),
+  // the app's status query, experiments from /camdiag/send
+  void pollSide(bool link) {
+    // Messages of the camera on our port 20000 (LED level, device name)
+    sockaddr_in from = {};
+    socklen_t flen = sizeof(from);
+    uint8_t reply[128];
+    int r = recvfrom(cmd_, reply, sizeof(reply), MSG_DONTWAIT, (sockaddr *)&from, &flen);
+    if (r > 0) {
+      logReply(reply, r, from);
+      handleMessage(reply, r);
+    }
+    if (fdwn_ >= 0) {
+      flen = sizeof(from);
+      r = recvfrom(fdwn_, reply, sizeof(reply), MSG_DONTWAIT, (sockaddr *)&from, &flen);
+      // "FDWN" 20 00 0e 00 01 00 <level>: same meaning as "JHCMD" 10 20 <level>
+      if (r >= 11 && !memcmp(reply, "FDWN", 4) && reply[4] == 0x20 && reply[6] == 0x0E) {
+        const uint8_t m[8] = {'J', 'H', 'C', 'M', 'D', 0x10, 0x20, reply[10]};
+        handleMessage(m, sizeof(m));
+      } else if (r == (int)FDWN_STATUS_LEN && !memcmp(reply, "FDWN", 4) && reply[6] == 0x01) {
+        handleStatus(reply);
+      }
+      // Status query like the app does (needs the video running = the camera is serving us)
+      if (running_ && link && millis() - lastStatusReq_ >= FDWN_POLL_MS) {
+        lastStatusReq_ = millis();
+        sockaddr_in to = camAddr_;
+        to.sin_port = htons(FDWN_PORT);
+        sendto(fdwn_, FDWN_STATUS_REQ, sizeof(FDWN_STATUS_REQ), 0, (sockaddr *)&to, sizeof(to));
+      }
+    }
+    // Experiment from /camdiag/send, sent from the command socket (port 20000)
+    uint8_t out[64];
+    size_t olen = sizeof(out);
+    uint16_t oport;
+    if (link && diagSendTake(oport, out, olen)) {
+      sockaddr_in to = camAddr_;
+      to.sin_port = htons(oport);
+      sendto(cmd_, out, olen, 0, (sockaddr *)&to, sizeof(to));
+      char hex[64 * 3 + 1];
+      for (size_t i = 0; i < olen; i++) snprintf(hex + i * 3, 4, "%02x ", out[i]);
+      hex[olen * 3] = 0;
+      diagLog("[jhcmd] %lu ms: sent to port %u: %s", millis(), oport, hex);
+    }
+  }
+
   // No confirmation from the camera: send twice and take the state as set
   void handleLed() {
     int want = ledRequest;
@@ -450,6 +464,7 @@ class JhcmdSession : public CamSession {
 
   int cmd_ = -1, vid_ = -1, fdwn_ = -1;
   uint32_t lastStatusReq_ = 0;
+  uint32_t lastSide_ = 0;  // last pollSide()
   bool haveStatus_ = false;
   uint8_t lastStatus_[FDWN_STATUS_LEN];
   sockaddr_in camAddr_ = {};

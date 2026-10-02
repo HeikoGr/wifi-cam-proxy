@@ -230,20 +230,37 @@ static void handleStream(int fd) {
   if (sendAll(fd, hdr, sizeof(hdr) - 1)) {
     uint32_t seq = 0;
     uint32_t lastCheck = millis();
-    uint32_t lastSent = 0;  // for STREAM_MAX_FPS
+    uint32_t lastSent = 0;   // for STREAM_MAX_FPS
+    size_t lastSize = 0;     // size of the last frame in the store, for replacedByNewer()
     BlockSender out(fd);  // one buffer per viewer, for all frames
     Frame frame;
+    // Large frames (720p microscopes): only one viewer, the newest wins. Each viewer
+    // holds the frame it is sending; with several 50-80 KB frames the heap runs out,
+    // reception drops frames and the Wi-Fi stalls. Also ends stale connections of a tab
+    // that reconnected, while waiting as well (they would keep their task and buffer).
+    auto replacedByNewer = [&]() {
+      if (lastSize <= FRAME_RESERVE_FROM || me == streamGen) return false;
+      crumb("stream ended: large frames, a newer viewer took over");
+      return true;
+    };
     while (!updating) {
-      uint32_t s = getFrame(frame);
-      if (s == seq || !frame) {
-        // replaced by a newer viewer (large frames, see below): end while waiting as well,
-        // a stale connection would keep its task and send buffer
-        bool replaced = frame && frame.size() > FRAME_RESERVE_FROM && me != streamGen;
-        frame.reset();
-        if (replaced) {
-          crumb("stream ended: large frames, a newer viewer took over");
-          break;
+      // Look at the sequence number first: holding the frame only to compare it would
+      // keep the store from freeing it for the next one (releaseIdleFrame)
+      uint32_t s = latestFrameSeq();
+      if (s != seq && STREAM_MAX_FPS > 0) {
+        // At most STREAM_MAX_FPS: wait out the rest of the interval, then send the
+        // newest frame (frames in between are skipped, the stream does not fall behind)
+        uint32_t since = millis() - lastSent, interval = 1000 / (STREAM_MAX_FPS > 0 ? STREAM_MAX_FPS : 1);
+        if (since < interval) {
+          if (replacedByNewer()) break;
+          vTaskDelay(pdMS_TO_TICKS(interval - since));
+          continue;
         }
+      }
+      if (s != seq) s = getFrame(frame);
+      if (s == seq || !frame) {
+        frame.reset();
+        if (replacedByNewer()) break;
         // While waiting, check now and then whether the client is still there
         if (millis() - lastCheck > 1000) {
           if (clientClosed(fd)) break;
@@ -252,26 +269,11 @@ static void handleStream(int fd) {
         vTaskDelay(pdMS_TO_TICKS(10));
         continue;
       }
-      // At most STREAM_MAX_FPS: wait and then send the newest frame (frames in between
-      // are skipped, the stream does not fall behind)
-      if (STREAM_MAX_FPS > 0 && millis() - lastSent < 1000 / STREAM_MAX_FPS) {
-        frame.reset();
-        vTaskDelay(pdMS_TO_TICKS(5));
-        continue;
-      }
       lastSent = millis();  // start to start, so the sending time is not added on top
       seq = s;
-      if (clientClosed(fd)) {
+      lastSize = frame.size();
+      if (clientClosed(fd) || replacedByNewer()) {
         frame.reset();
-        break;
-      }
-      // Large frames (720p microscopes): only one viewer, the newest wins. Each viewer
-      // holds the frame it is sending; with several 50-80 KB frames the heap runs out,
-      // reception drops frames and the Wi-Fi stalls. Also clears stale connections of
-      // a tab that reconnected.
-      if (frame.size() > FRAME_RESERVE_FROM && me != streamGen) {
-        frame.reset();
-        crumb("stream ended: large frames, a newer viewer took over");
         break;
       }
       char part[96];
