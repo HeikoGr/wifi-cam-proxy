@@ -4,6 +4,9 @@ firmware/.pio/
 # PlatformIO managed components (downloaded dependencies, like node_modules)
 firmware/managed_components/
 
+# IntelliSense database with machine-specific paths (tools/gen-compiledb.sh)
+firmware/compile_commands.json
+
 # Credentials – NEVER commit
 firmware/include/secrets.h
 

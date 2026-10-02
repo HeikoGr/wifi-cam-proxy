@@ -84,6 +84,14 @@
       "problemMatcher": []
     },
     {
+      "label": "Refresh IntelliSense",
+      "type": "shell",
+      "command": "tools/gen-compiledb.sh",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
       "label": "Set up build environment",
       "type": "shell",
       "command": "./setup-build-env.sh",

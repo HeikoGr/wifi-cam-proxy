@@ -53,7 +53,11 @@ if [[ "$(uname)" == "Linux" ]] && ! id -nG | grep -qw dialout; then
   warn "user is not in the 'dialout' group - to flash via USB: sudo usermod -aG dialout $USER (then log in again)"
 fi
 
-# --- 6. Optional: build all boards ----------------------------------------------
+# --- 6. IntelliSense: compiler calls for VS Code (firmware/compile_commands.json) ------
+info "Writing firmware/compile_commands.json for IntelliSense"
+PIO="$PIO" "$ROOT/tools/gen-compiledb.sh" || warn "compile_commands.json failed - IntelliSense will report false errors"
+
+# --- 7. Optional: build all boards ----------------------------------------------
 if [[ $BUILD -eq 1 ]]; then
   for env in zb-gw03 wt32-eth01 cyd; do
     info "Building $env"

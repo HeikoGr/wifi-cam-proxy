@@ -462,6 +462,15 @@ Recommended extensions (in [.vscode/extensions.json](../.vscode/extensions.json)
 - `ms-vscode.cpptools` – C/C++ IntelliSense
 - `ms-vscode.serial-monitor` – serial monitor
 
+**IntelliSense:** without the PIO extension the C/C++ extension does not know the ESP32
+framework's include paths and defines and reports errors that the compiler never sees
+(`DNSServer.h` not found, `arduino_panic_info_t` undefined, …). `tools/gen-compiledb.sh`
+writes `firmware/compile_commands.json` with the real compiler calls (`pio run -t compiledb`
+for the ZB-GW03, plus `main_cyd.cpp` from the CYD build); `.vscode/settings.json` points
+IntelliSense at it. `setup-build-env.sh` runs it; after changes to `platformio.ini` or new
+source files run the task **Refresh IntelliSense**. The file has machine-specific paths and is
+not committed.
+
 **About the PIO IDE extension:** the official `platformio.platformio-ide` extension is very
 heavy and takes very long to load the first time (large PIO Core download). Since this project
 gets by with the PIO CLI alone (`pio run`, `pio device monitor`), the extension is

@@ -1,5 +1,7 @@
 {
-    "cmake.sourceDirectory": "/home/develop/wifi-cam-proxy/firmware/.dummy",
+    // IntelliSense from the real compiler calls (tools/gen-compiledb.sh)
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/firmware/compile_commands.json",
+    "cmake.sourceDirectory": "${workspaceFolder}/firmware/.dummy",
     "tasks.statusbar.limit": 4,
     "tasks.statusbar.select.label": "$(list-unordered) More"
 }
