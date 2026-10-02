@@ -806,20 +806,35 @@ static const Route ROUTES[] = {
     {POST, "/sniff/stop", EXACT, true, handleSniffStop},
 };
 
+// Rescue mode serves only what repairs the device: update, restart, factory reset, home Wi-Fi
+static bool rescueAllowed(const char *path) {
+  static const char *const PATHS[] = {"/update",        "/restart",    "/factory-reset", "/auth",     "/wifi-setup",
+                                      "/cameras.json", "/cameras/scan", "/status",        "/style.css", "/app.js"};
+  for (const char *p : PATHS)
+    if (strcmp(path, p) == 0) return true;
+  return false;
+}
+
 static void route(Request &r, Method method) {
-  for (const Route &rt : ROUTES) {
-    if (rt.method != method) continue;
-    if (rt.match == EXACT ? strcmp(r.path, rt.path) != 0 : strncmp(r.path, rt.path, strlen(rt.path)) != 0) continue;
-    if (rt.auth && !authorized(r.head)) return sendText(r.fd, 401, "Unauthorized", "Wrong OTA password");
-    return rt.handler(r);
+  if (!rescueMode || rescueAllowed(r.path)) {
+    for (const Route &rt : ROUTES) {
+      if (rt.method != method) continue;
+      if (rt.match == EXACT ? strcmp(r.path, rt.path) != 0 : strncmp(r.path, rt.path, strlen(rt.path)) != 0) continue;
+      if (rt.auth && !authorized(r.head)) return sendText(r.fd, 401, "Unauthorized", "Wrong OTA password");
+      return rt.handler(r);
+    }
   }
-  if (method == GET && rescueApActive()) {
+  if (method == GET && rescueMode) {
     // Captive portal: phones probe an internet address when connecting and open
     // the setup page by themselves when redirected
-    static const char redirect[] =
+    static const char apRedirect[] =
         "HTTP/1.1 302 Found\r\nLocation: http://192.168.4.1/wifi-setup\r\n"
         "Content-Length: 0\r\nConnection: close\r\n\r\n";
-    sendAll(r.fd, redirect, sizeof(redirect) - 1);
+    static const char lanRedirect[] =
+        "HTTP/1.1 302 Found\r\nLocation: /update\r\n"
+        "Content-Length: 0\r\nConnection: close\r\n\r\n";
+    if (rescueApActive()) sendAll(r.fd, apRedirect, sizeof(apRedirect) - 1);
+    else sendAll(r.fd, lanRedirect, sizeof(lanRedirect) - 1);
     return;
   }
   sendText(r.fd, 404, "Not Found", "Not found");

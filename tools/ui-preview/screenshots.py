@@ -71,6 +71,8 @@ def main():
         shoot(desk, base + "/settings", "settings.png", full=True)
         shoot(desk, base + "/calibrate", "calibrate.png", full=True, action=record_circle)
         shoot(desk, rbase + "/wifi-setup", "wifi-setup-rescue.png", full=True)
+        shoot(desk, base + "/update", "update.png", full=True)
+        shoot(desk, rbase + "/update", "update-rescue.png", full=True)
         phone = browser.new_page(viewport=PHONE, device_scale_factor=2, is_mobile=True, has_touch=True)
         phone.add_init_script(ROUND)
         shoot(phone, base + "/", "live-phone.png")

@@ -22,6 +22,9 @@ nav{display:flex;flex-wrap:wrap;gap:2px}
 nav a{color:var(--muted);padding:5px 10px;border-radius:8px}
 nav a:hover{color:var(--text);background:var(--card2);text-decoration:none}
 nav a.on{color:var(--text);background:var(--card2)}
+nav .ro{display:none}
+.rescue nav .ro{display:block}
+.rescue nav .nr{display:none}
 main{max-width:640px;margin:0 auto;padding:16px}
 main.wide{max-width:960px}
 h1{font-size:1.35rem;margin:6px 0 14px}
@@ -72,11 +75,11 @@ button.sel{border-color:var(--accent);color:var(--accent)}
 // kept for this browser session (app.js, auth), a click forgets it.
 #define PAGE_NAV                                                                                \
   "<header><span class='brand'><i></i>WiFi-Cam</span><nav>"                                    \
-  "<a href='/'>Live</a><a href='/cameras'>Cameras</a><a href='/settings'>Settings</a>"          \
-  "<a href='/info'>Status</a><a href='/update'>Update</a></nav>"                                \
+  "<a class='nr' href='/'>Live</a><a class='nr' href='/cameras'>Cameras</a><a class='nr' href='/settings'>Settings</a>" \
+  "<a class='nr' href='/info'>Status</a><a href='/update'>Update</a><a class='ro' href='/wifi-setup'>Home Wi-Fi</a></nav>" \
   "<a id='auth' class='small muted' href='#' hidden title='Forget the OTA password'>&#128275; logged in</a></header>" \
   "<script>document.querySelectorAll('nav a').forEach(a=>{"                                    \
-  "if(a.getAttribute('href')===location.pathname)a.className='on'})</script>"
+  "if(a.getAttribute('href')===location.pathname)a.classList.add('on')})</script>"
 
 // Shared helpers (/app.js): orientation maths for start page and calibration,
 // rendering of key/value lists
@@ -617,17 +620,10 @@ loadCal().then(c=>{W=c;render();drawPlot()});
 render();drawPlot();
 </script></body></html>)HTML";
 
-// Rescue mode note, shown on Settings and Status
-#define RESCUE_NOTE                                                                             \
-  "<p id='rescue' class='note' hidden><b>Rescue mode:</b> Ethernet has no IP, Wi-Fi is on the home " \
-  "network or the own access point instead of the camera. When Ethernet comes back, the device "   \
-  "restarts by itself. <a href='/wifi-setup'>Set up home Wi-Fi</a></p>"
-
 // Settings: everything that can be switched or set, stored on the device (NVS)
 static const char SETTINGS_HTML[] = PAGE_HEAD("Settings")
     R"HTML(</head><body>)HTML" PAGE_NAV R"HTML(<main>
 <h1>Settings</h1>
-)HTML" RESCUE_NOTE R"HTML(
 <div class='card'><h2>Camera</h2>
 <label class='switch'><input type='checkbox' id='camera' data-url='/camera/enabled/'>Connection to the camera</label>
 <p class='muted small'>Off: the device leaves the camera Wi-Fi (e.g. so the vendor app can connect) and
@@ -691,8 +687,6 @@ async function load(){
   $('ha').textContent='# Home Assistant, configuration.yaml\ncamera:\n  - platform: mjpeg\n    name: WiFi-Cam\n'+
     '    mjpeg_url: '+url+'\n    still_image_url: http://'+host+'/snapshot\n';
   kv($('home'),[['Home Wi-Fi',S.home_ssid?esc(S.home_ssid):'– not set up']]);
-  const st=await fetch('/status',{cache:'no-store'}).then(r=>r.json()).catch(()=>null);
-  if(st)$('rescue').hidden=st.mode!=='rescue';
 }
 function txText(){$('txv').textContent=($('tx').value/4).toFixed(1)+' dBm'}
 async function change(url,what){
@@ -715,7 +709,6 @@ load();
 static const char INFO_HTML[] = PAGE_HEAD("Status")
     R"HTML(</head><body>)HTML" PAGE_NAV R"HTML(<main>
 <h1>Status</h1>
-)HTML" RESCUE_NOTE R"HTML(
 <div class='card'><h2>Device</h2><dl class='kv' id='st'><dt>Status</dt><dd>loading…</dd></dl></div>
 <div class='card'><h2>Network</h2><dl class='kv' id='net'></dl></div>
 <div class='card'><h2>Video</h2><dl class='kv' id='vid'></dl></div>
@@ -736,7 +729,6 @@ hex <input id='sx' placeholder='4a48434d442002' style='width:14em'> <button id='
 async function status(){
   try{
     const s=await (await fetch('/status',{cache:'no-store'})).json();
-    $('rescue').hidden=s.mode!=='rescue';
     const eth=s.eth_ip?esc(s.eth_ip)+(s.eth_speed?' · '+s.eth_speed+' Mbit'+(s.eth_full_duplex?'':' half duplex'):'')
       :'no IP, '+(!s.eth_begin?'init failed':s.eth_link?'link up':'no link');
     kv($('st'),[
@@ -812,8 +804,14 @@ stays.</p>
 async function status(){
   try{
     const s=await (await fetch('/status',{cache:'no-store'})).json();
+    const rs=s.mode==='rescue';
+    document.body.classList.toggle('rescue',rs);
     kv($('st'),[['Firmware',esc(s.version)],['Commit',esc(s.commit||'–')],
-      ['Uptime',Math.floor(s.uptime_s/3600)+' h '+Math.floor(s.uptime_s%3600/60)+' min']]);
+      ['Uptime',Math.floor(s.uptime_s/3600)+' h '+Math.floor(s.uptime_s%3600/60)+' min'],
+      rs&&['Mode','rescue: camera idle, restarts by itself when Ethernet is back','warnc'],
+      rs&&['Ethernet',s.eth_ip?esc(s.eth_ip):'no IP, '+(!s.eth_begin?'init failed':s.eth_link?'link up':'no link')],
+      rs&&['Wi-Fi',s.wifi_connected?esc(s.wifi_ssid)+', IP '+esc(s.wifi_ip):s.ap?'access point '+esc(s.ap)+' (192.168.4.1)':'not connected'],
+      s.last_crash&&['Crash',esc(s.last_crash),'bad']]);
     return true;
   }catch(e){kv($('st'),[['Firmware','not reachable','bad']]);return false}
 }
@@ -950,6 +948,7 @@ updates stay reachable. If that fails too, it opens its own access point
 async function load(){
   try{
     const s=await (await fetch('/status',{cache:'no-store'})).json();
+    document.body.classList.toggle('rescue',s.mode==='rescue');
     kv($('st'),[['Mode',s.mode==='rescue'?'rescue':'normal (Ethernet '+(s.eth_ip?esc(s.eth_ip):'without IP')+')',s.mode==='rescue'?'warnc':'ok'],
       ['Home Wi-Fi',s.home_ssid?esc(s.home_ssid):'– not set up'],
       s.mode==='rescue'&&['Wi-Fi',s.wifi_connected?esc(s.wifi_ssid)+', IP '+esc(s.wifi_ip):'not connected'],

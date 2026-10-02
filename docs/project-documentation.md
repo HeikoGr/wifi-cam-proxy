@@ -432,8 +432,8 @@ With `OTA_PASSWORD` set (header `X-OTA-Password`, a wrong one gives 401): `POST 
 | ![Live view](screenshots/live.png) | ![Camera selection](screenshots/cameras.png) | ![Calibration](screenshots/calibrate.png) |
 | **Settings** | **Status and diagnostics** | **Phone** |
 | ![Settings](screenshots/settings.png) | ![Status](screenshots/status.png) | ![Phone](screenshots/live-phone.png) |
-| **Wi-Fi setup (rescue mode)** | | |
-| ![Wi-Fi setup](screenshots/wifi-setup-rescue.png) | | |
+| **Wi-Fi setup (rescue mode)** | **Update** | **Update (rescue mode)** |
+| ![Wi-Fi setup](screenshots/wifi-setup-rescue.png) | ![Update](screenshots/update.png) | ![Update in rescue mode](screenshots/update-rescue.png) |
 
 Screenshots from [tools/ui-preview](../tools/ui-preview/) (simulated data, real camera picture).
 The pages share `/style.css` and `/app.js`; no external resources are loaded.
@@ -589,10 +589,10 @@ For further boards: a new section in `config.h` and a new `[env:...]` in `platfo
 If Ethernet has no IP for 30 s, the red LED turns on and the device switches to rescue mode:
 
 1. If a home Wi-Fi is set up, it connects to it. The web UI and OTA then stay reachable under `wifi-cam.local`. You set the home Wi-Fi under `/wifi-setup`, it is then stored in NVS. As a fallback the device uses `HOME_WIFI_SSID` from `secrets.h`.
-2. If none is set up or it cannot be reached for 30 s, the device opens its own access point `WiFi-Cam-XXXX` (password `SETUP_AP_PASSWORD`, default `wificam-setup`). After connecting, the phone opens the setup page by itself (captive portal), otherwise open `http://192.168.4.1/wifi-setup`. There you scan for networks and store the home Wi-Fi; the device connects right away. While the AP is running, it retries the home Wi-Fi every 5 minutes as long as nobody is connected to the AP.
+2. If none is set up or it cannot be reached for 10 s, the device opens its own access point `WiFi-Cam-XXXX` (password `SETUP_AP_PASSWORD`, default `wificam-setup`). After connecting, the phone opens the setup page by itself (captive portal), otherwise open `http://192.168.4.1/wifi-setup`. There you scan for networks and store the home Wi-Fi; the device connects right away. While the AP is running, it retries the home Wi-Fi every 5 minutes as long as nobody is connected to the AP.
 3. Once Ethernet has been back stably for 10 s, the device restarts into normal operation.
 
-The camera is idle in rescue mode because Wi-Fi is then needed for reachability.
+The camera is idle in rescue mode because Wi-Fi is then needed for reachability. The web UI is reduced to repair: firmware update (`/update`, also restart and factory reset) and the home Wi-Fi (`/wifi-setup`); every other page redirects there (`rescueAllowed()` in `http.cpp`).
 
 ---
 

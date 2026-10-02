@@ -31,7 +31,7 @@
 // device opens its own access point with a setup page (http://192.168.4.1/wifi-setup).
 // When Ethernet comes back, the device restarts.
 #define RESCUE_TIMEOUT_MS     (30 * 1000)
-#define RESCUE_STA_TIMEOUT_MS (30 * 1000)       // try home Wi-Fi this long, then AP
+#define RESCUE_STA_TIMEOUT_MS (10 * 1000)       // try home Wi-Fi this long, then AP
 #define RESCUE_STA_RETRY_MS   (5 * 60 * 1000)   // retry home Wi-Fi while the AP is running
 #define SETUP_AP_PREFIX       "WiFi-Cam-"       // + last 4 digits of the MAC
 #ifndef SETUP_AP_PASSWORD

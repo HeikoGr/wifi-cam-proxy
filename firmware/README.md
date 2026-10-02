@@ -101,12 +101,13 @@ If `OTA_PASSWORD` is set, it protects the update and every route that changes th
 If Ethernet has no IP for 30 s, the red LED turns on and the device switches to rescue mode:
 
 1. If a home Wi-Fi is set up, it connects to it. The web UI and OTA then stay reachable under `wifi-cam.local`. You set the home Wi-Fi under `/wifi-setup`, it is then stored in NVS. As a fallback the device uses `HOME_WIFI_SSID` from `secrets.h`.
-2. If none is set up or it cannot be reached for 30 s, the device opens its own access point `WiFi-Cam-XXXX` (password `SETUP_AP_PASSWORD`, default `wificam-setup`). After connecting, the phone opens the setup page by itself (captive portal), otherwise open `http://192.168.4.1/wifi-setup`. There you scan for networks and store the home Wi-Fi; the device connects right away. While the AP is running, it retries the home Wi-Fi every 5 minutes as long as nobody is connected to the AP.
+2. If none is set up or it cannot be reached for 10 s, the device opens its own access point `WiFi-Cam-XXXX` (password `SETUP_AP_PASSWORD`, default `wificam-setup`). After connecting, the phone opens the setup page by itself (captive portal), otherwise open `http://192.168.4.1/wifi-setup`. There you scan for networks and store the home Wi-Fi; the device connects right away. While the AP is running, it retries the home Wi-Fi every 5 minutes as long as nobody is connected to the AP.
 3. Once Ethernet has been back stably for 10 s, the device restarts into normal operation.
 
-The camera is idle in rescue mode because Wi-Fi is then needed for reachability.
+The camera is idle in rescue mode because Wi-Fi is then needed for reachability. The web UI is reduced to repair: firmware update (`/update`, also restart and factory reset) and the home Wi-Fi (`/wifi-setup`); every other page redirects there.
 
 ![Wi-Fi setup in rescue mode](../docs/screenshots/wifi-setup-rescue.png)
+![Update in rescue mode](../docs/screenshots/update-rescue.png)
 
 ## Emergency via USB-UART (3.3 V)
 
