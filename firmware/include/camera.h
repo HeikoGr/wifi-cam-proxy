@@ -54,7 +54,7 @@ struct VideoStats {
   std::atomic<uint32_t> framesReleased{0};  // stored frame freed for a new one (memory short)
   std::atomic<uint32_t> maxFrameBytes{0};
   std::atomic<uint32_t> handshakes{0};
-  std::atomic<uint32_t> keepalives{0};
+  std::atomic<uint32_t> keepalives{0};       // START heartbeats (JHCMD)
   // Stalls: with packet loss in the 2 s before (radio) or without (camera pauses on
   // its own). For the clean ones the last points in time (s since start).
   std::atomic<uint32_t> stallsLoss{0};

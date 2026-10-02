@@ -112,14 +112,6 @@ class I4seasonSession : public CamSession {
     int n = recvfrom(sock_, pkt, cap, 0, (sockaddr *)&from, &flen);
     if (n > 0) logPacket(pkt, n, from);
 
-    // Keepalive: repeat START as a precaution while video is running (0 = off)
-    if (KEEPALIVE_INTERVAL_MS > 0 && haveSeq_ && cameraLinkUp() &&
-        millis() - lastStart_ >= KEEPALIVE_INTERVAL_MS) {
-      sendto(sock_, start_, sizeof(start_), 0, (sockaddr *)&ctrlAddr_, sizeof(ctrlAddr_));
-      lastStart_ = millis();
-      stats.keepalives++;
-    }
-
     // Detect a stall, but give the camera time to start up after a START: a new
     // START before it is running restarts it (cascade observed at 200 ms).
     // The first packet after idle is often lost -> repeat the handshake.
@@ -321,7 +313,7 @@ class I4seasonSession : public CamSession {
   uint8_t sensorFrame_ = 0;    // frame number of the last orientation reading
   bool haveSensorFrame_ = false;
   uint32_t lastData_ = 0;
-  uint32_t lastStart_ = 0;     // last START (handshake or keepalive)
+  uint32_t lastStart_ = 0;     // last START (handshake)
   uint32_t lastLoss_ = 0;      // last gap in the packet number
   uint32_t lastNotify_ = 0;
   uint8_t loggedReplies_ = 0, loggedData_ = 0;  // logPacket()

@@ -152,8 +152,6 @@
 #define WIFI_MODE_DEFAULT  "bg"
 // Wi-Fi transmit power in 0.25 dBm if nothing is stored in NVS (8..84; 44 = 11 dBm).
 #define WIFI_TX_QDBM_DEFAULT 44
-// Repeat START every x ms while video is running (0 = off).
-#define KEEPALIVE_INTERVAL_MS 0
 
 // --- Experimental switches ----------------------------------------------------------
 #ifndef USE_IRAM_CHUNKS
