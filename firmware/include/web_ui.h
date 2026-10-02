@@ -37,6 +37,8 @@ h2{font-size:1.02rem;margin:0 0 10px}
 .btn:hover,button:hover{border-color:#3d4452;text-decoration:none}
 button:disabled{opacity:.45;cursor:default}
 .primary{background:var(--accent);border-color:var(--accent);color:#06101f;font-weight:600}
+.danger{background:var(--bad);border-color:var(--bad);color:#1a0605;font-weight:600}
+.danger:hover{border-color:#ff948b;background:#f77d74}
 input,select{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:8px 10px;margin:4px 0}
 input:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px}
 .field{width:100%}
@@ -794,6 +796,11 @@ is written; afterwards the device restarts.</p>
 <progress id='p' max='100' value='0'></progress>
 <p id='msg'></p></div>
 </main><script src='/app.js'></script><script>
+<div class='card'><h2>Factory reset</h2>
+<p class='muted small'>Erases everything the device stored: orientation calibration, remembered camera,
+home Wi-Fi for rescue mode, switches and settings. Then it restarts with the defaults. The firmware
+stays.</p>
+<p><button id='fr' class='danger'>Erase settings and restart</button></p></div>
 async function status(){
   try{
     const s=await (await fetch('/status',{cache:'no-store'})).json();
@@ -831,6 +838,11 @@ $('rs').onclick=async()=>{
   $('msg').textContent=r.text;if(r.ok)waitReboot();
 };
 status();
+$('fr').onclick=async()=>{
+  if(!confirm('Erase ALL stored settings (calibration, camera, home Wi-Fi, switches) and restart?'))return;
+  const r=await post('/factory-reset');
+  $('msg').textContent=r.text;if(r.ok)waitReboot();
+};
 </script></body></html>)HTML";
 
 // Choose camera: recognised cameras (SSID patterns) and all other networks from the scan

@@ -131,7 +131,7 @@ setup AP (default `wificam-setup`). You set the home Wi-Fi for rescue mode on th
 | `/cameras` | cameras found, selection, rescan |
 | `/settings` | switches (camera connection, live view, stream for VLC/HA, automatic scan), frame rate, Wi-Fi mode and transmit power, Ethernet speed, stream addresses and Home Assistant snippet |
 | `/info` | status: device, network, video counters, diagnostics (session log, raw capture, sniffer) |
-| `/update` | firmware update, restart |
+| `/update` | firmware update, restart, factory reset (erases all stored settings) |
 | `/stream`, `/stream.m3u`, `/snapshot` | MJPEG for VLC/Home Assistant, the same as VLC playlist, single frame (unrotated) |
 | `/calibrate` | calibrate the orientation sensor |
 | `/wifi-setup` | home Wi-Fi for rescue mode |

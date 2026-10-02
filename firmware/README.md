@@ -15,7 +15,7 @@ As of 2026-09-30: stable at 17 fps, also with a viewer. Dropouts only occur when
 | `/stream` | MJPEG for VLC or Home Assistant (unrotated); `/stream.m3u` opens it in VLC |
 | `/snapshot` | current single frame (JPEG) |
 | `/calibrate` | calibrate orientation: circle recording, quarter turns, zero point, smoothing |
-| `/update` | firmware update, restart |
+| `/update` | firmware update, restart, factory reset (erases all stored settings) |
 | `/status` | all counters as JSON |
 | `/camdiag`, `/camdiag/raw` | first packets of the camera session as hex; raw capture of one frame (call twice) |
 | `/sniff/start`, `/sniff`, `/sniff/stop` | sniffer for the vendor app's commands (open camera Wi-Fi, 11n/HT40), e.g. to find LED commands |
@@ -94,7 +94,7 @@ If `custom_sdkconfig` changes, the next build rebuilds ESP-IDF. That takes about
 - **On the command line:** `pio run -e zb-gw03-http -t upload`, which corresponds to `curl --data-binary @firmware.bin http://wifi-cam.local/update`.
 - **Via espota:** `pio run -e zb-gw03-ota -t upload`.
 
-If `OTA_PASSWORD` is set, it protects the update and every route that changes the device's configuration or connection: `/update`, `/restart`, `/eth10`, `/wifi/...`, `POST /wifi-setup`, `/cameras/select`, `/cameras/autoscan`, `/camera/enabled`, `/stream/...` (switches), `/sniff/start`, `/sniff/stop`, `/camdiag/send`. The web UI asks for it once on the first protected action and keeps it for the browser session ("logged in" in the header, a click forgets it). Viewing and operating stay open: all GET pages, the LED, `/cameras/scan` and storing the calibration. With curl you pass it as the header `X-OTA-Password`. During an update some video packets are lost briefly because the flash is being written. That is normal.
+If `OTA_PASSWORD` is set, it protects the update and every route that changes the device's configuration or connection: `/update`, `/restart`, `/factory-reset`, `/eth10`, `/wifi/...`, `POST /wifi-setup`, `/cameras/select`, `/cameras/autoscan`, `/camera/enabled`, `/stream/...` (switches), `/sniff/start`, `/sniff/stop`, `/camdiag/send`. The web UI asks for it once on the first protected action and keeps it for the browser session ("logged in" in the header, a click forgets it). Viewing and operating stay open: all GET pages, the LED, `/cameras/scan` and storing the calibration. With curl you pass it as the header `X-OTA-Password`. During an update some video packets are lost briefly because the flash is being written. That is normal.
 
 ## Rescue mode
 

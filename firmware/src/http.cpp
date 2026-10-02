@@ -444,6 +444,17 @@ static void handleWifiPost(Request &r) {
       return sendText(r.fd, 400, "Bad Request", "Transmit power 8..84 (x 0.25 dBm)");
     return sendText(r.fd, 200, "OK", "Transmit power set");
   }
+// Factory reset: erase everything the device stored (NVS namespace: calibration, camera,
+// home Wi-Fi, switches) and restart with the defaults. Erased after the answer has gone
+// out and right before the restart, so no task writes a setting in between.
+static void handleFactoryReset(Request &r) {
+  sendText(r.fd, 200, "OK", "Settings erased, device is restarting");
+  delay(500);
+  nvsWrite([](Preferences &p) { p.clear(); });
+  crumb("factory reset");
+  ESP.restart();
+}
+
   if (!wifiSetMode(r.path + 6)) return sendText(r.fd, 400, "Bad Request", "Mode: bgn, bg or b");
   sendText(r.fd, 200, "OK", "Wi-Fi mode set, reconnecting");
 }
@@ -785,6 +796,7 @@ static const Route ROUTES[] = {
     {POST, "/sniff/start", PREFIX, true, handleSniffStart},
     {POST, "/sniff/stop", EXACT, true, handleSniffStop},
 };
+    {POST, "/factory-reset", EXACT, true, handleFactoryReset},
 
 static void route(Request &r, Method method) {
   for (const Route &rt : ROUTES) {

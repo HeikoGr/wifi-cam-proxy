@@ -397,7 +397,7 @@ Serial console (115200 baud) every 5 s:
 | `/calibrate` | GET | calibrate orientation (circle recording, quarter turns, zero point) |
 | `/calibration` | GET/POST | calibration data as JSON |
 | `/style.css`, `/app.js` | GET | shared style sheet and scripts of the pages |
-| `/update` | GET | firmware update page, restart |
+| `/update` | GET | firmware update page, restart, factory reset |
 | `/update` | POST | firmware update (binary, `application/octet-stream`) |
 | `/status` | GET | all counters as JSON |
 | `/camdiag` | GET | first packets of the current camera session as hex (text) |
@@ -419,8 +419,9 @@ Serial console (115200 baud) every 5 s:
 | `/wifi/<bgn\|bg\|b>` | POST | switch the Wi-Fi mode towards the camera |
 | `/wifi/tx/<8..84>` | POST | Wi-Fi transmit power in 0.25 dBm |
 | `/restart` | POST | restart |
+| `/factory-reset` | POST | erase all stored settings (NVS), restart |
 
-With `OTA_PASSWORD` set (header `X-OTA-Password`, a wrong one gives 401): `POST /update`, `/restart`,
+With `OTA_PASSWORD` set (header `X-OTA-Password`, a wrong one gives 401): `POST /update`, `/restart`, `/factory-reset`,
 `/eth10/…`, `/wifi/…`, `POST /wifi-setup`, `/cameras/select`, `/cameras/autoscan/…`,
 `/camera/enabled/…`, `/stream/…`, `/auth`,
 `/sniff/start`, `/sniff/stop`, `/camdiag/send/…`. Open: all GET routes, the LED routes,
