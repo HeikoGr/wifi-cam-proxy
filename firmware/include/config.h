@@ -91,9 +91,11 @@
 #define LED_RED_GPIO       15              // on = rescue mode (active LOW)
 #define ZIGBEE_NRST_GPIO   13             // nRST of the EFR32, LOW = held in reset
 #define ETH_10MBIT_DEFAULT true
-// 10 Mbit Ethernet: the 720p MAX-VIEW sends ~22 fps with 33-84 KB per frame (6-15
-// Mbit/s), more than the link carries -> the stream stuttered. At most 10 fps per viewer.
-#define STREAM_MAX_FPS     10
+// 10 Mbit Ethernet: the 720p MAX-VIEW sends ~22 fps with 33-98 KB per frame (6-17
+// Mbit/s), more than the link carries -> the stream stuttered. While a viewer sends a
+// frame it also holds it, and the next one has to fit beside it. 10 fps still stuttered,
+// so at most 5 fps per viewer (enough for a microscope; also caps the otoscope here).
+#define STREAM_MAX_FPS     5
 
 #endif  // board selection
 #ifndef STREAM_MAX_FPS

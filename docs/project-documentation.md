@@ -373,7 +373,7 @@ Important constants:
 | `SHOW_DAMAGED_FRAMES` | 1 | show (1) or drop (0) frames with packet loss |
 | `WIFI_MODE_DEFAULT` | `"bg"` | Wi-Fi mode without 11n (every packet on its own) |
 | `MAX_FRAME_BYTES` / `FRAME_RESERVE_FROM` / `FRAME_HEAP_RESERVE` | 96 / 48 / 40 KB | largest frame; beyond 48 KB only while 40 KB heap remain free |
-| `STREAM_MAX_FPS` | 10 on the ZB-GW03, else 0 (unlimited) | frames per second per stream viewer; the newest frame is sent, the ones in between are skipped. The 720p MAX-VIEW (~22 fps, 33–84 KB) needs 6–15 Mbit/s, more than the 10 Mbit Ethernet of the ZB-GW03 carries |
+| `STREAM_MAX_FPS` | 5 on the ZB-GW03 (10 still stuttered), else 0 (unlimited) | frames per second per stream viewer; the newest frame is sent, the ones in between are skipped. The 720p MAX-VIEW (~22 fps, 33–84 KB) needs 6–15 Mbit/s, more than the 10 Mbit Ethernet of the ZB-GW03 carries |
 
 ### 6.2 Runtime (NVS, namespace `otoskop`)
 
