@@ -33,8 +33,9 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/.platformio
-          key: pio-${{ matrix.env }}-${{ hashFiles('firmware/platformio.ini', 'firmware/sdkconfig.*') }}
-          restore-keys: pio-${{ matrix.env }}-
+          # Toolchain/framework are identical for all boards, so one shared entry; the first job to finish saves it.
+          key: pio-${{ hashFiles('firmware/platformio.ini', 'firmware/sdkconfig.*') }}
+          restore-keys: pio-
 
       - run: pip install platformio
 
