@@ -88,8 +88,10 @@ correction: arbitrary angles would need a frame buffer that does not fit without
 90° steps the image jumped back and forth in the hand. 720p microscopes fail on RAM just like with the
 bridge. Code: [firmware/src/main_cyd.cpp](firmware/src/main_cyd.cpp).
 
-With the Soulear it shows about 11–12 fps at 1:1 and 7–8 fps at "fit"; the JPEG decoder is the
-limit, not Wi-Fi. Measurements: [project documentation, section 4.6](docs/project-documentation.md#46-cyd-display-path-and-measurements).
+With the Soulear it showed about 11–12 fps at 1:1 and 7–8 fps at "fit"; the JPEG decoder is the
+limit, not Wi-Fi. Since then decoding and display transfer overlap (DMA), the decoder runs on the
+core without Wi-Fi, with `-O2` and 80 MHz flash (takes effect after a flash over USB); not yet
+measured. Measurements: [project documentation, section 4.6](docs/project-documentation.md#46-cyd-display-path-and-measurements).
 Without a local USB port, `firmware/.pio/build/cyd/firmware.factory.bin` can also be flashed at
 address 0x0 with a web serial flasher (e.g. esptool-js).
 

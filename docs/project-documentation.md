@@ -224,7 +224,7 @@ Observed on a MAX-VIEW microscope (`MAXVIEW-7762`, 2026-10-01) with a raw captur
 | `httpTask` | core 1 | 3 | TCP accept, creates a clientTask per connection ([http.cpp](../firmware/src/http.cpp)) |
 | `clientTask` | core 1 | 3 | HTTP request → response: looks the path up in `ROUTES` (method, path or prefix, password yes/no, handler) |
 | `loop()` | core 1 | 1 | camera scan/selection (`cameraLoop`), rescue mode, ArduinoOTA, sniffer start/stop, FPS statistics. All `WiFi.*` calls that change the connection run here; HTTP tasks only leave requests (`cameraSelect`, `sniffRequest`) |
-| `displayTask` (CYD only) | core 0 | 1 | decodes the newest frame and shows it, touch menu |
+| `displayTask` (CYD only) | core 1 | 1 | decodes the newest frame and shows it, touch menu. Core 1 (`CYD_DISPLAY_CORE`): core 0 runs the Wi-Fi driver and lwIP, whose interrupts would interrupt the decoder |
 
 ### 4.2 Frame store (frame objects)
 
@@ -327,13 +327,37 @@ variant), Wi-Fi RSSI −26 to −49 dBm:
   black at the right. The firmware picks a group size that divides the MCUs per row (7) and
   widens the crop by a few MCUs if there is no useful divisor (clip rectangle hides them).
   Checked on the host with JPEGDEC for 1280×720, 640×480 and 480×480 (4:2:0, 4:2:2, 4:4:4).
+  A crop as wide as the image (480×480 on a 480×320 display) needs none of this: JPEGDEC then
+  does not crop horizontally and draws the partial group itself.
 - **Rows above the crop skipped:** entropy-coded data has no positions, so JPEGDEC reads every
   row above the 1:1 crop (MAX-VIEW: rows 0–223 of 720 at full width). With restart markers
   the data of an interval does not depend on anything before it: `FrameReader`
   ([jpeg_reader.h](../firmware/include/jpeg_reader.h)) serves the header with a smaller image
   height followed by the data after the RSTn marker at which the crop row begins, the crop
   moves up accordingly. Host check with JPEGDEC: pixel-identical, 0.55 → 0.37 ms per decode
-  (−33 %) for the MAX-VIEW frame at 1:1. Without DRI, or in "fit", nothing changes.
+  (−33 %) for the MAX-VIEW frame at 1:1. Without DRI, or in "fit", nothing changes. The skip
+  stops one MCU row above the crop: JPEGDEC smooths the chroma of a row with the row above,
+  and starting right at the crop gave wrong colours in a few pixels of its top rows (seen with
+  a 4:2:0 JPEG with a restart marker per MCU row; the MAX-VIEW frame was not affected).
+- **Decoding and display transfer overlap (DMA):** before, every MCU group waited until it was
+  on the display (SPI, ~15–30 ms per frame in total). With `CYD_USE_DMA` JPEGDEC's ping-pong
+  mode (`JPEG_USES_DMA`) splits its pixel buffer: one half goes to the display by DMA
+  (`pushImageDMA`) while the next group is decoded into the other. The group is then fixed at
+  half the buffer, and JPEGDEC switches the mode off as soon as `setMaxOutputSize()` caps the
+  group, so at 1:1 only the crop width is adjusted to make the groups fit
+  ([jpeg_crop.h](../firmware/include/jpeg_crop.h)); where that is not possible it decodes as
+  before. Host test `jpeg_crop_test`: the real JPEGDEC with the MAX-VIEW frame and five
+  generated formats (480×480 to 1280×720, 4:2:0/4:2:2/4:4:4, with and without restart
+  markers) on 320×240 and 480×320 displays, 1:1 and fit, with and without DMA: every visible
+  pixel identical to a full decode, the two buffers alternate on every call.
+- **Compiler and flash:** the CYD builds with `-O2` instead of `-Os` (our code, JPEGDEC,
+  LovyanGFX; +31 KB flash) and runs its flash at 80 MHz instead of 40 (DIO): code and the
+  decoder's tables come from flash through the cache. The flash speed lives in the bootloader,
+  so it only takes effect after flashing over USB (`pio run -e cyd -t upload`). The bridges
+  stay at `-Os`/40 MHz: they decode nothing, their limit is the 10 Mbit Ethernet.
+- **Not yet measured on the device:** DMA, core 1, `-O2` and 80 MHz together. Compare
+  `draw avg` and `shown fps` in `[stats]` with the table above; `CPU x/y %` there shows the
+  load of both cores.
 - **No waiting screen between frames:** with 720p the store gives up its frame for the next
   one (`released`); the display then briefly finds no frame. While connected and the last
   image is younger than 3 s it keeps that image instead of drawing "Waiting for image...".

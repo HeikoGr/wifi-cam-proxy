@@ -62,6 +62,14 @@
 // 40 MHz for the ILI9341 variant. The ESP32 only divides 80 MHz (80, 40, 26.7, ...);
 // if the image is garbled or has wrong colours, go back to 40000000.
 #define CYD_SPI_WRITE_HZ   80000000
+// Overlap decoding and display transfer: JPEGDEC's ping-pong buffers, the display gets
+// one half by DMA while the next MCU group is decoded (include/jpeg_crop.h). 0 = blocking
+// transfer as before.
+#define CYD_USE_DMA        1
+// Core of the display task (decode + draw). Core 0 also runs the Wi-Fi driver and lwIP
+// (their interrupts and high-priority tasks interrupt the decoder); core 1 only the
+// light video task and loop().
+#define CYD_DISPLAY_CORE   1
 // The display holds one frame while it decodes it (~140 ms), the next one is built
 // meanwhile. With the 720p MAX-VIEW (33-98 KB per frame) both together left the Wi-Fi
 // driver too little: its receive buffers (up to 32 x 1.6 KB) failed, heap down to 224

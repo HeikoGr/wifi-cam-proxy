@@ -6,7 +6,8 @@
  * in the Ethernet bridge (camera.cpp, cam_*.cpp, frame.cpp).
  *
  *   Video task (core 1, prio 10)    receives and assembles JPEGs (as before)
- *   Display task (core 0, prio 1)   always decodes the newest frame and shows it.
+ *   Display task (core 1, prio 1)   always decodes the newest frame and shows it
+ *                                   (CYD_DISPLAY_CORE; core 0 has Wi-Fi and lwIP).
  *                                   If it is slower than the camera, frames drop
  *                                   out by themselves (there is only "the newest").
  *   loop()                          camera scan and connection (cameraLoop)
@@ -34,6 +35,7 @@
 #include "config.h"
 #include "cpuload.h"
 #include "crashlog.h"
+#include "jpeg_crop.h"
 #include "jpeg_reader.h"
 #include "settings.h"
 
@@ -85,8 +87,13 @@ static int32_t jpgSeek(JPEGFILE *f, int32_t pos) {
   return pos;
 }
 static void jpgClose(void *) {}
+// With DMA (JPEG_USES_DMA, see jpeg_crop.h) JPEGDEC alternates between the two halves of
+// its pixel buffer: one goes to the display by DMA while the next group is decoded into
+// the other. pushImageDMA waits for the previous transfer before it starts the next one.
+static bool dmaDraw = false;
 static int jpgDraw(JPEGDRAW *d) {
-  lcd.pushImage(d->x, d->y, d->iWidth, d->iHeight, (const lgfx::swap565_t *)d->pPixels);
+  if (dmaDraw) lcd.pushImageDMA(d->x, d->y, d->iWidth, d->iHeight, (const lgfx::swap565_t *)d->pPixels);
+  else lcd.pushImage(d->x, d->y, d->iWidth, d->iHeight, (const lgfx::swap565_t *)d->pPixels);
   return 1;
 }
 
@@ -115,90 +122,33 @@ static uint32_t lastFrameAt = 0;  // for the "no signal" hint
 static float shownFps = 0;
 static char statusShown[64] = "";
 
-// JPEGDEC hands over the decoded MCUs of a row in groups (up to MAX_BUFFERED_PIXELS)
-// and only draws a group once it is full: with a crop, the last, partly filled group of
-// each row was never drawn (MAX-VIEW 1280x720 at 1:1: 21 MCUs per row in groups of 8,
-// the right 64 pixels stayed black). So choose a group size that divides the number of
-// MCUs per row; if that number has no useful divisor, widen the crop by a few MCUs (the
-// clip rectangle hides them). JPEGDEC decodes MCU columns ax/mw rounded up to
-// (ax+aw)/mw inclusive, and caps a group at aw/mw MCUs.
-static void fitGroups(int W, int ax, int ay, int aw, int ah) {
-  int sub = jpeg->getSubSample();
-  int mw = (sub >> 4) == 2 ? 16 : 8, mh = (sub & 15) == 2 ? 16 : 8;
-  int first = (ax + mw - 1) / mw, cols = (W + mw - 1) / mw;
-  int maxGroup = MAX_BUFFERED_PIXELS / (mw * mh);
-  int bestGroup = 1, bestW = aw;
-  for (int extra = 0; extra < maxGroup && (ax + aw) / mw + extra < cols; extra++) {
-    int w = aw + extra * mw;
-    int mcus = (ax + w) / mw - first + 1;
-    int g = min(maxGroup, w / mw);
-    while (g > 1 && mcus % g) g--;
-    if (g > bestGroup) {
-      bestGroup = g;
-      bestW = w;
-    }
-    if (g * 2 > maxGroup) break;  // good enough
-  }
-  if (bestW != aw) jpeg->setCropArea(ax, ay, bestW, ah);
-  jpeg->setMaxOutputSize(bestGroup);
+static bool openJpeg() {
+  if (!jpeg->open(&reader, (int)reader.size(), jpgClose, jpgRead, jpgSeek, jpgDraw)) return false;
+  jpeg->setPixelType(RGB565_BIG_ENDIAN);
+  return true;
 }
 
 static bool drawFrame(const Frame &f) {
   reader.reset(f);
-  if (!jpeg->open(&reader, (int)reader.size(), jpgClose, jpgRead, jpgSeek, jpgDraw)) {
+  if (!openJpeg()) {
     reader.release();
     return false;
   }
-  jpeg->setPixelType(RGB565_BIG_ENDIAN);
 
   int rot = imageRotation();
   lcd.setRotation(rot);
 
   int W = jpeg->getWidth(), H = jpeg->getHeight();
   int dw = lcd.width(), dh = lcd.height();
-  int w, h, opt, dx, dy;  // visible size, decode option, position for decode()
-  if (zoomFull && (W > dw || H > dh)) {
-    // 1:1: centre crop. JPEGDEC moves the crop start down to a block edge (8/16
-    // pixels) but keeps the width, so the crop would end that many pixels too early
-    // (black bar on one side). Hence a second call that starts at the block edge and
-    // reaches the wanted right/bottom end. decode() gets the screen position of that
-    // block edge, so the image centre lands exactly in the display centre.
-    w = min(W, dw);
-    h = min(H, dh);
-    int cx = (W - w) / 2, cy = (H - h) / 2, ax, ay, aw, ah;
-    jpeg->setCropArea(cx, cy, w, h);
-    jpeg->getCropArea(&ax, &ay, &aw, &ah);
-    jpeg->setCropArea(ax, ay, min(W - ax, cx + w - ax), min(H - ay, cy + h - ay));
-    jpeg->getCropArea(&ax, &ay, &aw, &ah);
-    dx = dw / 2 - W / 2 + ax;
-    dy = dh / 2 - H / 2 + ay;
-    // Do not decode the rows above the crop if restart markers allow it: open again as
-    // the smaller image that starts there, the crop moves up by as many rows
-    if (int skipped = reader.skipAbove(ay)) {
-      jpeg->close();
-      if (!jpeg->open(&reader, (int)reader.size(), jpgClose, jpgRead, jpgSeek, jpgDraw)) {
-        reader.release();
-        lcd.setRotation(UI_ROT);
-        return false;
-      }
-      jpeg->setPixelType(RGB565_BIG_ENDIAN);
-      ay -= skipped;
-      jpeg->setCropArea(ax, ay, aw, ah);
-    }
-    fitGroups(W, ax, ay, aw, ah);
-    opt = 0;
-  } else {
-    // Fit: largest scale (1, 1/2, 1/4, 1/8) at which the image fits the display
-    static const int OPTS[] = {0, JPEG_SCALE_HALF, JPEG_SCALE_QUARTER, JPEG_SCALE_EIGHTH};
-    int i = 0;
-    while (i < 3 && (W >> i > dw || H >> i > dh)) i++;
-    w = W >> i;
-    h = H >> i;
-    dx = (dw - w) / 2;
-    dy = (dh - h) / 2;
-    opt = OPTS[i];
+  // Crop or scale, MCU groups, DMA ping-pong (include/jpeg_crop.h, host test jpeg_crop_test)
+  DecodePlan plan = planDecode(*jpeg, reader, dw, dh, zoomFull, CYD_USE_DMA, [] { return openJpeg(); });
+  if (!plan.ok) {
+    reader.release();
+    lcd.setRotation(UI_ROT);
+    return false;
   }
-  int x = (dw - w) / 2, y = (dh - h) / 2;
+  int dx = plan.dx, dy = plan.dy, opt = plan.opt, x = plan.x, y = plan.y, w = plan.w, h = plan.h;
+  dmaDraw = opt & JPEG_USES_DMA;
 
   // Room for the overlay (top left in UI orientation): in the side border, in the top
   // border, or else a black strip of OVL_STRIP pixels that the image leaves out. The
@@ -242,6 +192,7 @@ static bool drawFrame(const Frame &f) {
   }
   lcd.setClipRect(x, y, w, h);  // do not paint edge blocks beyond the image
   if (!jpeg->decode(dx, dy, opt)) decodeErrors++;
+  if (dmaDraw) lcd.waitDMA();  // the last group may still be on its way
   lcd.clearClipRect();
   lcd.endWrite();
   jpeg->close();
@@ -489,7 +440,8 @@ static void displayTask(void *) {
         fpsFrames++;
       }
       // A new frame is almost always ready (camera faster than the display): without
-      // this the task would never block and IDLE0 would trip the task watchdog
+      // this the task would never block, and loop() (same core and priority) and the
+      // idle task would not get to run
       vTaskDelay(1);
     } else if (!f && !strcmp(st, "connected") && lastFrameAt && millis() - lastFrameAt < 3000) {
       // Store empty only for a moment: it gave its frame up for the next one (memory
@@ -567,7 +519,7 @@ void setup() {
   Network.onEvent(onNetworkEvent);
   heap_caps_monitor_local_minimum_free_size_start();  // heap minimum per [stats] interval
   cameraBegin();
-  xTaskCreatePinnedToCore(displayTask, "display", 8192, nullptr, 1, nullptr, 0);
+  xTaskCreatePinnedToCore(displayTask, "display", 8192, nullptr, 1, nullptr, CYD_DISPLAY_CORE);
 }
 
 void loop() {
