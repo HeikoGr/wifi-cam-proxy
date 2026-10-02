@@ -474,6 +474,14 @@ void setup() {
 
   loadSettings();
   lcd.init();
+  if (auto bus = lcd.getPanel()->getBus(); bus && bus->busType() == lgfx::bus_type_t::bus_spi) {
+    auto spi = static_cast<lgfx::Bus_SPI *>(bus);
+    auto cfg = spi->config();
+    Serial.printf("[lcd] SPI %u -> %u MHz\r\n", (unsigned)(cfg.freq_write / 1000000),
+                  (unsigned)(CYD_SPI_WRITE_HZ / 1000000));
+    cfg.freq_write = CYD_SPI_WRITE_HZ;
+    spi->config(cfg);  // takes effect with the next transaction
+  }
   lcd.setRotation(UI_ROT);
   lcd.setBrightness(brightness);
   lcd.fillScreen(TFT_BLACK);

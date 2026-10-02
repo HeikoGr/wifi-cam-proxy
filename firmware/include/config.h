@@ -57,6 +57,10 @@
 // Rotating the camera image by 90°: check the direction of setRotation() on the device (+1 / -1)
 #define CYD_ROTATE_DIR     1
 #define CYD_MENU_TIMEOUT_MS 15000          // menu closes by itself
+// Display SPI clock: shorter write per frame = less visible tearing. Autodetect uses
+// 40 MHz for the ILI9341 variant. The ESP32 only divides 80 MHz (80, 40, 26.7, ...);
+// if the image is garbled or has wrong colours, go back to 40000000.
+#define CYD_SPI_WRITE_HZ   80000000
 
 #elif defined(BOARD_WT32_ETH01)
 // --- WT32-ETH01 (ESP32 + LAN8720 with its own 50 MHz oscillator on GPIO0) ------------
