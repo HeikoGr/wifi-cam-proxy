@@ -219,7 +219,7 @@ bool sniffText(void (*put)(void *ctx, const char *line), void *ctx) {
   uint32_t vp, vb;
   uint16_t vport;
   portENTER_CRITICAL(&mux);
-  n = count;
+  n = ring ? count : 0;
   first = (head + MAX_ENTRIES - count) % MAX_ENTRIES;
   vp = videoPackets;
   vb = videoBytes;
@@ -237,8 +237,10 @@ bool sniffText(void (*put)(void *ctx, const char *line), void *ctx) {
   for (int i = 0; i < n; i++) {
     Entry e;  // one at a time: no second copy of the whole ring
     portENTER_CRITICAL(&mux);
-    e = ring[(first + i) % MAX_ENTRIES];
+    bool gone = !ring;  // POST /sniff/stop from another HTTP task freed it meanwhile
+    if (!gone) e = ring[(first + i) % MAX_ENTRIES];
     portEXIT_CRITICAL(&mux);
+    if (gone) break;
     char kind[24];
     if (e.proto == 17) strlcpy(kind, "UDP", sizeof(kind));
     else if (e.proto == 6)

@@ -294,10 +294,21 @@ static float wifiTxDbm() {
   return esp_wifi_get_max_tx_power(&q) == ESP_OK ? q / 4.0f : 0;
 }
 
+// Replace what would break a JSON string ("…" without escapes): the values in /status are
+// for reading only, unlike /cameras.json, whose SSIDs are sent back exactly (jsonStr)
+static void jsonSafe(char *s) {
+  for (; *s; s++)
+    if (*s == '"' || *s == '\\' || (uint8_t)*s < 0x20) *s = '?';
+}
+
 static void handleStatus(int fd) {
+  static const size_t JSON_MAX = 2048;
+  std::unique_ptr<char[]> json(new (std::nothrow) char[JSON_MAX]);
+  if (!json) return sendText(fd, 503, "Service Unavailable", "Out of memory");
   bool wifiOk = WiFi.status() == WL_CONNECTED;
   char crash[320];
   crashlogFormat(crash, sizeof(crash));
+  jsonSafe(crash);
   // Times of the last clean stalls, oldest first
   char times[96] = "";
   uint32_t nClean = stats.stallsClean;
@@ -305,13 +316,13 @@ static void handleStatus(int fd) {
   for (uint32_t k = 0, t = 0; k < shown; k++)
     t += snprintf(times + t, sizeof(times) - t, "%s%lu", k ? "," : "",
                   (unsigned long)stats.cleanStallAt[(nClean - shown + k) % VideoStats::CLEAN_STALL_TIMES]);
-  char home[33], ap[33] = "";
+  char home[33], ap[33] = "", ssid[33] = "";
   rescueHomeSsid(home, sizeof(home));
-  for (char *c = home; *c; c++)
-    if (*c == '"' || *c == '\\' || (uint8_t)*c < 0x20) *c = '?';  // JSON-sicher
+  jsonSafe(home);
   if (rescueApActive()) rescueApSsid(ap, sizeof(ap));
-  char json[1536];
-  int n = snprintf(json, sizeof(json),
+  if (wifiOk) strlcpy(ssid, WiFi.SSID().c_str(), sizeof(ssid));
+  jsonSafe(ssid);
+  int n = snprintf(json.get(), JSON_MAX,
                    "{\"version\":\"%s\",\"commit\":\"%s\",\"reset_reason\":\"%s\",\"boot_count\":%u,\"mode\":\"%s\",\"fps\":%.1f,\"frames\":%u,"
                    "\"dropped\":%u,\"drop_nomem\":%u,\"drop_toobig\":%u,\"drop_incomplete\":%u,\"packets_lost\":%u,\"damaged\":%u,\"released\":%u,\"max_frame\":%u,\"handshakes\":%u,\"keepalives\":%u,\"stalls_loss\":%u,\"stalls_clean\":%u,\"clean_stall_times\":[%s],\"stream_clients\":%d,\"sse_clients\":%d,\"client_tasks\":%d,"
                    "\"wifi_connected\":%s,\"wifi_ssid\":\"%s\",\"wifi_rssi\":%d,\"wifi_mode\":\"%s\",\"wifi_tx_dbm\":%.2f,\"wifi_ip\":\"%s\",\"home_ssid\":\"%s\",\"ap\":\"%s\",\"eth10\":%d,"
@@ -323,7 +334,7 @@ static void handleStatus(int fd) {
                    (unsigned)stats.framesReleased,
                    (unsigned)stats.maxFrameBytes, (unsigned)stats.handshakes, (unsigned)stats.keepalives, (unsigned)stats.stallsLoss, (unsigned)stats.stallsClean, times,
                    (int)streamClients, (int)sseClients, (int)clientTasks, wifiOk ? "true" : "false",
-                   wifiOk ? WiFi.SSID().c_str() : "", wifiOk ? WiFi.RSSI() : 0, WIFI_MODES[wifiMode], wifiTxDbm(),
+                   ssid, wifiOk ? WiFi.RSSI() : 0, WIFI_MODES[wifiMode], wifiTxDbm(),
                    wifiOk ? WiFi.localIP().toString().c_str() : "", home, ap, (int)eth10,
                    protoKey(cameraProto()), (int)telemetry.battery, (int)telemetry.led,
                    ethBeginOk ? "true" : "false", ethStarted ? "true" : "false",
@@ -333,7 +344,8 @@ static void handleStatus(int fd) {
                    ethStarted ? (int)EMAC_DMA.dmaoperation_mode.tx_str_fwd : -1,
                    ethUp ? ETH.localIP().toString().c_str() : "", heapFree(), heapBlock(),
                    heapMin(), iramFree(), (unsigned)ESP.getPsramSize(), millis() / 1000, crash);
-  sendResponse(fd, 200, "OK", "application/json", json, n);
+  n = constrain(n, 0, (int)JSON_MAX - 1);  // never send more than the buffer holds
+  sendResponse(fd, 200, "OK", "application/json", json.get(), n);
 }
 
 // Firmware as raw data in the body (application/octet-stream), e.g. from the
@@ -730,8 +742,9 @@ static void clientTask(void *arg) {
     } else if (post && strcmp(path, "/wifi-setup") == 0) {
       if (!authorized(req.get())) sendText(fd, 401, "Unauthorized", "Wrong OTA password");
       else handleWifiSetup(fd, req.get(), body, bodyLen);
-    } else if (post && strncmp(path, "/wifi/", 6) == 0 && authorized(req.get())) {
-      handleWifiModePost(fd, path);
+    } else if (post && strncmp(path, "/wifi/", 6) == 0) {
+      if (!authorized(req.get())) sendText(fd, 401, "Unauthorized", "Wrong OTA password");
+      else handleWifiModePost(fd, path);
     } else if (post && strcmp(path, "/calibration") == 0) {
       handleCalibrationPost(fd, req.get(), body, bodyLen);
     } else if (get && strcmp(path, "/orientation") == 0) {

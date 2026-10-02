@@ -54,9 +54,6 @@ void crashlogFormat(char *out, size_t len) {
                       crash.core, crash.corrupt ? " (incomplete)" : "");
   for (int i = 0; i < crash.depth && n < (int)len; i++)
     n += snprintf(out + n, len - n, " 0x%08lx", (unsigned long)crash.pcs[i]);
-  // Make it JSON-safe
-  for (char *p = out; *p; p++)
-    if (*p == '"' || *p == '\\' || (uint8_t)*p < 0x20) *p = ' ';
 }
 
 // --- Events ----------------------------------------------------------------------
