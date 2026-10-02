@@ -32,6 +32,8 @@ PAGES = {
     "INDEX_HTML": "/",
     "CALIBRATE_HTML": "/calibrate",
     "UPDATE_HTML": "/update",
+    "SETTINGS_HTML": "/settings",
+    "INFO_HTML": "/info",
     "CAMERAS_HTML": "/cameras",
     "WIFI_SETUP_HTML": "/wifi-setup",
     "APP_JS": "/app.js",
@@ -96,6 +98,21 @@ class State:
         self.led_level = 100
         self.calibration = b"{}"
         self.home_ssid = "HomeNetwork"
+        self.camera_on = True
+        self.live = True
+        self.external = True
+        self.max_fps = 5
+        self.wifi_mode = "bg"
+        self.wifi_tx = 44
+        self.eth10 = True
+
+    def settings_json(self):
+        return {
+            "camera": self.camera_on, "autoscan": self.autoscan, "live": self.live,
+            "external": self.external, "max_fps": self.max_fps, "max_fps_limit": 30,
+            "wifi_mode": self.wifi_mode, "wifi_tx": self.wifi_tx, "eth10": self.eth10,
+            "home_ssid": self.home_ssid, "password": False, "hostname": "otoskop",
+        }
 
     def networks(self):
         return [
@@ -115,6 +132,7 @@ class State:
             "preferred": self.preferred,
             "pref_proto": "auto",
             "autoscan": self.autoscan,
+            "enabled": self.camera_on,
             "protocols": [["auto", "automatic"], ["i4season", "i4season (Soulear, MS5)"],
                           ["jhcmd", "MaxSee/JoyHonest/MAX-VIEW (JHCMD)"]],
             "recognized": 2,
@@ -191,15 +209,53 @@ def make_handler(pages: dict, frame: bytes, state: State):
                 return self.send(200, "application/json", state.calibration)
             if path == "/snapshot":
                 return self.send(200, "image/jpeg", frame)
-            if path == "/stream":
+            if path in ("/stream", "/live"):
+                on = self.server_state().external if path == "/stream" else self.server_state().live
+                if not on:
+                    return self.send(503, "text/plain", b"Stream switched off in the settings")
                 return self.stream()
+            if path == "/settings.json":
+                return self.json(state.settings_json())
+            if path == "/stream.m3u":
+                host = self.headers.get("Host", "otoskop.local")
+                return self.send(200, "audio/x-mpegurl", f"#EXTM3U\n#EXTINF:-1,WiFi-Cam\nhttp://{host}/stream\n".encode())
+            if path == "/camdiag":
+                return self.send(200, "text/plain", b"[i4season] camera 192.168.1.1, receiving on UDP port 55000 (simulated)\n"
+                                 b"[camera] protocol i4season (answered the probe)\n")
+            if path == "/sniff":
+                return self.send(200, "text/plain", b"No recording (simulated)\n")
             if path == "/orientation":
                 return self.orientation()
             self.send(404, "text/plain", b"Not found")
 
+        def server_state(self):
+            return state
+
         def do_POST(self):
             path = self.path.split("?")[0]
             body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            if path.startswith("/camera/enabled/"):
+                state.camera_on = path.endswith("1")
+                return self.send(200, "text/plain", b"Camera connection " + (b"on" if state.camera_on else b"off"))
+            if path.startswith("/stream/fps/"):
+                state.max_fps = int(path[12:] or 0)
+                return self.send(200, "text/plain", b"Frame rate limit set")
+            if path.startswith("/stream/live/") or path.startswith("/stream/external/"):
+                on = path.endswith("1")
+                if "live" in path:
+                    state.live = on
+                else:
+                    state.external = on
+                return self.send(200, "text/plain", b"Stream " + (b"on" if on else b"off"))
+            if path.startswith("/wifi/tx/"):
+                state.wifi_tx = int(path[9:])
+                return self.send(200, "text/plain", b"Transmit power set")
+            if path.startswith("/wifi/"):
+                state.wifi_mode = path[6:]
+                return self.send(200, "text/plain", b"Wi-Fi mode set, reconnecting")
+            if path.startswith("/eth10/"):
+                state.eth10 = path.endswith("1")
+                return self.send(200, "text/plain", b"set, Ethernet renegotiates (link briefly down)")
             if path.startswith("/led/level/"):
                 state.led_level = int(path[11:] or 0) or state.led_level
                 state.led = 1 if int(path[11:] or 0) else 0

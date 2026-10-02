@@ -358,13 +358,22 @@ Serial console (115200 baud) every 5 s:
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/` | GET | live image with orientation correction, 2× zoom and LED switch |
-| `/stream` | GET | MJPEG stream (for VLC, Home Assistant) |
+| `/` | GET | live image with orientation correction, 2× zoom, LED switch, VLC link |
+| `/settings` | GET | settings page: switches, frame rate, Wi-Fi mode and transmit power, Ethernet, stream addresses |
+| `/info` | GET | status page: device, network, video counters, diagnostics with buttons |
+| `/live` | GET | MJPEG stream for the live view in the browser (switch `live_on`; the page reads it with fetch and reconnects by itself) |
+| `/stream` | GET | MJPEG stream for VLC, Home Assistant (switch `ext_on`; same frames as `/live`) |
+| `/stream.m3u` | GET | playlist with the `/stream` address as the browser reached the device: opens VLC |
+| `/settings.json` | GET | current settings (switches, frame rate limit, Wi-Fi mode and power, Ethernet, home Wi-Fi, whether a password is set) |
+| `/camera/enabled/<0\|1>` | POST | connection to the camera off/on (NVS, also after a restart); off: as during the sniffer, Ethernet stays |
+| `/stream/live/<0\|1>`, `/stream/external/<0\|1>` | POST | live view / stream for other programs off/on; running viewers end |
+| `/stream/fps/<0..30>` | POST | frame rate limit per viewer, 0 = none |
+| `/auth` | POST | only checks the OTA password (web UI login) |
 | `/snapshot` | GET | single frame (JPEG) |
 | `/calibrate` | GET | calibrate orientation (circle recording, quarter turns, zero point) |
 | `/calibration` | GET/POST | calibration data as JSON |
 | `/style.css`, `/app.js` | GET | shared style sheet and scripts of the pages |
-| `/update` | GET | status, Wi-Fi mode, Ethernet speed, firmware update, restart |
+| `/update` | GET | firmware update page, restart |
 | `/update` | POST | firmware update (binary, `application/octet-stream`) |
 | `/status` | GET | all counters as JSON |
 | `/camdiag` | GET | first packets of the current camera session as hex (text) |
@@ -389,14 +398,17 @@ Serial console (115200 baud) every 5 s:
 
 With `OTA_PASSWORD` set (header `X-OTA-Password`, a wrong one gives 401): `POST /update`, `/restart`,
 `/eth10/…`, `/wifi/…`, `POST /wifi-setup`, `/cameras/select`, `/cameras/autoscan/…`,
+`/camera/enabled/…`, `/stream/…`, `/auth`,
 `/sniff/start`, `/sniff/stop`, `/camdiag/send/…`. Open: all GET routes, the LED routes,
 `/cameras/scan` and `POST /calibration` (the calibration page has no password field).
 
 | Live view | Cameras | Calibration |
 |---|---|---|
 | ![Live view](screenshots/live.png) | ![Camera selection](screenshots/cameras.png) | ![Calibration](screenshots/calibrate.png) |
-| **Status & update** | **Wi-Fi setup (rescue mode)** | **Phone** |
-| ![Status](screenshots/status.png) | ![Wi-Fi setup](screenshots/wifi-setup-rescue.png) | ![Phone](screenshots/live-phone.png) |
+| **Settings** | **Status and diagnostics** | **Phone** |
+| ![Settings](screenshots/settings.png) | ![Status](screenshots/status.png) | ![Phone](screenshots/live-phone.png) |
+| **Wi-Fi setup (rescue mode)** | | |
+| ![Wi-Fi setup](screenshots/wifi-setup-rescue.png) | | |
 
 Screenshots from [tools/ui-preview](../tools/ui-preview/) (simulated data, generated test image).
 The pages share `/style.css` and `/app.js`; no external resources are loaded.
@@ -431,19 +443,22 @@ Important constants:
 | `WIFI_MODE_DEFAULT` | `"bg"` | Wi-Fi mode without 11n (every packet on its own) |
 | `MAX_FRAME_BYTES` / `FRAME_RESERVE_FROM` / `FRAME_HEAP_RESERVE` | 96 / 48 / 40 KB (CYD: 48 KB) | largest frame; beyond 48 KB only while 40 KB heap remain free |
 | `FRAME_HEAP_FLOOR` | 16 KB (CYD: 48 KB) | no frame chunk from the heap below this, whatever the frame size |
-| `STREAM_MAX_FPS` | 5 on the ZB-GW03 (10 still stuttered), else 0 (unlimited) | frames per second per stream viewer; the newest frame is sent, the ones in between are skipped. The 720p MAX-VIEW (~22 fps, 33–84 KB) needs 6–15 Mbit/s, more than the 10 Mbit Ethernet of the ZB-GW03 carries |
+| `STREAM_MAX_FPS` | 5 on the ZB-GW03 (10 still stuttered), else 0 (unlimited) | default of the frame rate limit per viewer (changeable under `/settings`, NVS `stream_fps`); the newest frame is sent, the ones in between are skipped. The 720p MAX-VIEW (~22 fps, 33–84 KB) needs 6–15 Mbit/s, more than the 10 Mbit Ethernet of the ZB-GW03 carries |
 
 ### 6.2 Runtime (NVS, namespace `otoskop`)
 
 | Key | Content | Set via |
 |---|---|---|
 | `calib` | orientation calibration (JSON) | `/calibrate` |
-| `wifimode` | `bgn`/`bg`/`b` | `/update` |
-| `wifitx` | Wi-Fi transmit power (0.25 dBm) | `POST /wifi/tx/<value>` |
-| `eth10` | Ethernet 10 Mbit (default: on) | `POST /eth10/<0\|1>` |
+| `wifimode` | `bgn`/`bg`/`b` | `/settings` |
+| `wifitx` | Wi-Fi transmit power (0.25 dBm) | `/settings` |
+| `eth10` | Ethernet 10 Mbit (default: on) | `/settings` |
+| `cam_enabled` | connection to the camera on/off (default on) | `/settings` |
+| `live_on`, `ext_on` | live view (`/live`), stream for other programs (`/stream`); default on | `/settings` |
+| `stream_fps` | frame rate limit per viewer (default `STREAM_MAX_FPS`) | `/settings` |
 | `home_ssid`, `home_pass` | home Wi-Fi for rescue mode | `/wifi-setup` |
 | `cam_ssid`, `cam_pass`, `cam_proto` | last connected camera | `/cameras` |
-| `cam_autoscan` | automatic scan on/off (default on) | `/cameras` |
+| `cam_autoscan` | automatic scan on/off (default on) | `/settings` |
 | `cyd_zoom`, `cyd_bright` | CYD settings | CYD touch menu |
 
 ### 6.3 Secrets ([firmware/include/secrets.h](../firmware/include/secrets.h))

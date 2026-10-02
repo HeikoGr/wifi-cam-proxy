@@ -29,6 +29,12 @@ static std::atomic<int> streamClients{0};
 static std::atomic<uint32_t> streamGen{0};  // number of the newest stream (see handleStream)
 static std::atomic<int> sseClients{0};
 
+// Video switches (Settings page, NVS): the browser's live view (/live) and the stream for
+// other programs (/stream: VLC, Home Assistant) separately, and a frame rate limit
+static std::atomic<bool> liveOn{true}, externalOn{true};
+static std::atomic<int> maxFps{STREAM_MAX_FPS};  // per viewer, 0 = as the camera delivers
+static const int MAX_FPS_LIMIT = 30;
+
 int streamViewers() { return streamClients; }
 
 // One HTTP request: header block (request line and headers, 0-terminated) and the part
@@ -195,8 +201,11 @@ static bool readBody(Request &r, char *buf, size_t max) {
 }
 
 // --- Video ------------------------------------------------------------------------
-static void handleStream(Request &r) {
+// MJPEG stream: /live for the browser's live view, /stream for other programs. Same
+// data, switched separately; a viewer ends when its switch goes off.
+static void handleStream(Request &r, const std::atomic<bool> &on) {
   int fd = r.fd;
+  if (!on) return sendText(fd, 503, "Service Unavailable", "Stream switched off in the settings");
   if (++streamClients > MAX_STREAM_CLIENTS) {
     streamClients--;
     sendText(fd, 503, "Service Unavailable", "Too many viewers");
@@ -210,7 +219,7 @@ static void handleStream(Request &r) {
   if (sendAll(fd, hdr, sizeof(hdr) - 1)) {
     uint32_t seq = 0;
     uint32_t lastCheck = millis();
-    uint32_t lastSent = 0;   // for STREAM_MAX_FPS
+    uint32_t lastSent = 0;   // for maxFps
     size_t lastSize = 0;     // size of the last frame in the store, for replacedByNewer()
     BlockSender out(fd);  // one buffer per viewer, for all frames
     Frame frame;
@@ -223,14 +232,15 @@ static void handleStream(Request &r) {
       crumb("stream ended: large frames, a newer viewer took over");
       return true;
     };
-    while (!updating) {
+    while (!updating && on) {
       // Look at the sequence number first: holding the frame only to compare it would
       // keep the store from freeing it for the next one (releaseIdleFrame)
       uint32_t s = latestFrameSeq();
-      if (s != seq && STREAM_MAX_FPS > 0) {
-        // At most STREAM_MAX_FPS: wait out the rest of the interval, then send the
-        // newest frame (frames in between are skipped, the stream does not fall behind)
-        uint32_t since = millis() - lastSent, interval = 1000 / (STREAM_MAX_FPS > 0 ? STREAM_MAX_FPS : 1);
+      int fps = maxFps;
+      if (s != seq && fps > 0) {
+        // At most maxFps: wait out the rest of the interval, then send the newest frame
+        // (frames in between are skipped, the stream does not fall behind)
+        uint32_t since = millis() - lastSent, interval = 1000 / fps;
         if (since < interval) {
           if (replacedByNewer()) break;
           vTaskDelay(pdMS_TO_TICKS(interval - since));
@@ -438,6 +448,68 @@ static void handleEth10Post(Request &r) {
   sendText(r.fd, 200, "OK", "set, Ethernet renegotiates (link briefly down)");
   delay(200);  // the answer goes out before the link drops
   ethSet10Mbit(v[0] == '1');
+}
+
+// Switches of the Settings page: POST /camera/enabled/<0|1>, /stream/live/<0|1>,
+// /stream/external/<0|1>, /stream/fps/<0..30>
+static bool parseSwitch(const char *v, bool &on) {
+  if ((v[0] != '0' && v[0] != '1') || v[1]) return false;
+  on = v[0] == '1';
+  return true;
+}
+
+static void handleCameraEnabled(Request &r) {
+  bool on;
+  if (!parseSwitch(r.path + 16, on)) return sendText(r.fd, 400, "Bad Request", "/camera/enabled/<0|1>");
+  cameraSetEnabled(on);
+  sendText(r.fd, 200, "OK", on ? "Camera connection on" : "Camera connection off");
+}
+
+static void handleStreamSetting(Request &r) {
+  const char *rest = r.path + 8;  // after "/stream/"
+  bool on;
+  if (!strncmp(rest, "fps/", 4) && isdigit((unsigned char)rest[4]) && atoi(rest + 4) <= MAX_FPS_LIMIT) {
+    int fps = atoi(rest + 4);
+    maxFps = fps;
+    nvsWrite([&](Preferences &p) { p.putInt("stream_fps", fps); });
+    return sendText(r.fd, 200, "OK", fps ? "Frame rate limit set" : "No frame rate limit");
+  }
+  std::atomic<bool> *sw = !strncmp(rest, "live/", 5) ? &liveOn : !strncmp(rest, "external/", 9) ? &externalOn : nullptr;
+  if (!sw || !parseSwitch(strchr(rest, '/') + 1, on))
+    return sendText(r.fd, 400, "Bad Request", "/stream/<live|external>/<0|1> or /stream/fps/<0..30>");
+  *sw = on;
+  nvsWrite([&](Preferences &p) { p.putBool(sw == &liveOn ? "live_on" : "ext_on", on); });
+  crumb("%s stream %s", sw == &liveOn ? "live" : "external", on ? "on" : "off");
+  sendText(r.fd, 200, "OK", on ? "Stream on" : "Stream off");
+}
+
+// Current settings for the Settings page
+static void handleSettingsJson(Request &r) {
+  char home[33];
+  rescueHomeSsid(home, sizeof(home));
+  jsonSafe(home);
+  char json[320];
+  int n = snprintf(json, sizeof(json),
+                   "{\"camera\":%s,\"autoscan\":%s,\"live\":%s,\"external\":%s,\"max_fps\":%d,"
+                   "\"max_fps_limit\":%d,\"wifi_mode\":\"%s\",\"wifi_tx\":%d,\"eth10\":%s,"
+                   "\"home_ssid\":\"%s\",\"password\":%s,\"hostname\":\"%s\"}",
+                   cameraEnabled() ? "true" : "false", cameraAutoScan() ? "true" : "false",
+                   liveOn ? "true" : "false", externalOn ? "true" : "false", (int)maxFps, MAX_FPS_LIMIT,
+                   wifiModeName(), wifiTxPower(), eth10Mbit() ? "true" : "false", home,
+                   strlen(OTA_PASSWORD) ? "true" : "false", HOSTNAME);
+  sendResponse(r.fd, 200, "OK", "application/json", json, constrain(n, 0, (int)sizeof(json) - 1));
+}
+
+// Playlist for VLC (and other players): opens the stream at the address the browser used
+static void handleM3u(Request &r) {
+  String host = headerValue(r.head, "Host");
+  if (host.isEmpty()) host = HOSTNAME ".local";
+  char body[160];
+  int n = snprintf(body, sizeof(body), "#EXTM3U\n#EXTINF:-1,WiFi-Cam\nhttp://%s/stream\n", host.c_str());
+  static const char hdr[] =
+      "HTTP/1.1 200 OK\r\nContent-Type: audio/x-mpegurl\r\n"
+      "Content-Disposition: attachment; filename=wifi-cam.m3u\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
+  if (sendAll(r.fd, hdr, sizeof(hdr) - 1)) sendAll(r.fd, body, constrain(n, 0, (int)sizeof(body) - 1));
 }
 
 // --- Orientation calibration (JSON, computed by the web pages, stored in NVS) -----
@@ -662,17 +734,22 @@ static const Route ROUTES[] = {
     {GET, "/cameras", EXACT, false, [](Request &r) { sendStatic(r.fd, HTML, CAMERAS_HTML); }},
     {GET, "/calibrate", EXACT, false, [](Request &r) { sendStatic(r.fd, HTML, CALIBRATE_HTML); }},
     {GET, "/update", EXACT, false, [](Request &r) { sendStatic(r.fd, HTML, UPDATE_HTML); }},
+    {GET, "/settings", EXACT, false, [](Request &r) { sendStatic(r.fd, HTML, SETTINGS_HTML); }},
+    {GET, "/info", EXACT, false, [](Request &r) { sendStatic(r.fd, HTML, INFO_HTML); }},
     {GET, "/wifi-setup", EXACT, false, [](Request &r) { sendStatic(r.fd, HTML, WIFI_SETUP_HTML); }},
     {GET, "/style.css", EXACT, false, [](Request &r) { sendStatic(r.fd, "text/css; charset=utf-8", STYLE_CSS); }},
     {GET, "/app.js", EXACT, false, [](Request &r) { sendStatic(r.fd, "application/javascript; charset=utf-8", APP_JS); }},
     // video and state
-    {GET, "/stream", EXACT, false, handleStream},
+    {GET, "/live", EXACT, false, [](Request &r) { handleStream(r, liveOn); }},
+    {GET, "/stream", EXACT, false, [](Request &r) { handleStream(r, externalOn); }},
+    {GET, "/stream.m3u", EXACT, false, handleM3u},
     {GET, "/snapshot", EXACT, false, handleSnapshot},
     {GET, "/orientation", EXACT, false, handleOrientation},
     {GET, "/status", EXACT, false, handleStatus},
     {GET, "/cameras.json", EXACT, false, handleCamerasJson},
     {GET, "/led", EXACT, false, handleLedGet},
     {GET, "/calibration", EXACT, false, handleCalibrationGet},
+    {GET, "/settings.json", EXACT, false, handleSettingsJson},
     // operating
     {POST, "/led/level/", PREFIX, false, handleLedLevel},
     {POST, "/led/", PREFIX, false, handleLedSwitch},
@@ -684,6 +761,10 @@ static const Route ROUTES[] = {
     // configuration (password)
     {POST, "/cameras/select", EXACT, true, handleCameraSelect},
     {POST, "/cameras/autoscan/", PREFIX, true, handleAutoScan},
+    {POST, "/camera/enabled/", PREFIX, true, handleCameraEnabled},
+    {POST, "/stream/", PREFIX, true, handleStreamSetting},
+    // checks the password only (web UI login)
+    {POST, "/auth", EXACT, true, [](Request &r) { sendText(r.fd, 200, "OK", "Password correct"); }},
     {POST, "/wifi-setup", EXACT, true, handleWifiSetup},
     {POST, "/wifi/", PREFIX, true, handleWifiPost},
     {POST, "/eth10/", PREFIX, true, handleEth10Post},
@@ -808,6 +889,11 @@ static void httpTask(void *) {
 }
 
 void httpBegin() {
-  nvsRead([](Preferences &p) { calibJson = p.getString("calib", "{}"); });
+  nvsRead([](Preferences &p) {
+    calibJson = p.getString("calib", "{}");
+    liveOn = p.getBool("live_on", true);
+    externalOn = p.getBool("ext_on", true);
+    maxFps = constrain(p.getInt("stream_fps", STREAM_MAX_FPS), 0, MAX_FPS_LIMIT);
+  });
   xTaskCreatePinnedToCore(httpTask, "http", 4096, nullptr, 3, nullptr, 1);
 }

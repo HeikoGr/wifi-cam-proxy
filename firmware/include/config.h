@@ -114,7 +114,7 @@
 
 #endif  // board selection
 #ifndef STREAM_MAX_FPS
-#define STREAM_MAX_FPS     0               // frames per second per stream viewer, 0 = unlimited
+#define STREAM_MAX_FPS     0               // default frames per second per viewer, 0 = unlimited (/settings, NVS stream_fps)
 #endif
 
 // LED polarity: ZB-GW03 = inverted (LOW = on), WT32-ETH01 = normal (HIGH = on)

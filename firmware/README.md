@@ -8,12 +8,14 @@ As of 2026-09-30: stable at 17 fps, also with a viewer. Dropouts only occur when
 
 | Address | Purpose |
 |---|---|
-| `http://otoskop.local/` | live image with orientation correction, 2× zoom, battery, LED and snapshot |
+| `http://otoskop.local/` | live image with orientation correction, 2× zoom, battery, LED, snapshot and VLC link |
 | `/cameras` | cameras found, selection, rescan (JSON: `/cameras.json`) |
-| `/stream` | MJPEG for VLC or Home Assistant (unrotated) |
+| `/settings` | switches and settings, see below; stream addresses and Home Assistant snippet |
+| `/info` | status page: device, network, video counters, diagnostics with buttons |
+| `/stream` | MJPEG for VLC or Home Assistant (unrotated); `/stream.m3u` opens it in VLC |
 | `/snapshot` | current single frame (JPEG) |
 | `/calibrate` | calibrate orientation: circle recording, quarter turns, zero point, smoothing |
-| `/update` | status, Wi-Fi mode, Ethernet speed, firmware update, restart |
+| `/update` | firmware update, restart |
 | `/status` | all counters as JSON |
 | `/camdiag`, `/camdiag/raw` | first packets of the camera session as hex; raw capture of one frame (call twice) |
 | `/sniff/start`, `/sniff`, `/sniff/stop` | sniffer for the vendor app's commands (open camera Wi-Fi, 11n/HT40), e.g. to find LED commands |
@@ -55,9 +57,13 @@ LEDs: **green** means the firmware is running. **Red** means rescue mode.
 |---|---|---|
 | `calib` | orientation calibration (JSON) | `/calibrate` → "Save on device" |
 | `cam_ssid`, `cam_pass`, `cam_proto` | last connected camera | `/cameras` |
-| `wifimode` | `bgn`, `bg` or `b` | `/update` → "Wi-Fi to the camera" |
-| `wifitx` | Wi-Fi transmit power in 0.25 dBm | `POST /wifi/tx/<8..84>` |
-| `eth10` | Ethernet 10 Mbit only (default: on for ZB-GW03, off for WT32-ETH01) | `/update` or `POST /eth10/<0\|1>` |
+| `cam_enabled` | connection to the camera on/off (default on) | `/settings` |
+| `cam_autoscan` | automatic scan on/off (default on) | `/settings` |
+| `live_on`, `ext_on` | live view in the browser (`/live`), stream for other programs (`/stream`); default on | `/settings` |
+| `stream_fps` | frame rate limit per viewer, 0 = none (default: `STREAM_MAX_FPS`, 5 on the ZB-GW03) | `/settings` |
+| `wifimode` | `bgn`, `bg` or `b` | `/settings` → "Wi-Fi to the camera" |
+| `wifitx` | Wi-Fi transmit power in 0.25 dBm | `/settings` → "Transmit power" |
+| `eth10` | Ethernet 10 Mbit only (default: on for ZB-GW03, off for WT32-ETH01) | `/settings` → "Ethernet" |
 | `home_ssid`, `home_pass` | home Wi-Fi for rescue mode | `/wifi-setup` |
 
 Back up and restore the calibration:
@@ -88,7 +94,7 @@ If `custom_sdkconfig` changes, the next build rebuilds ESP-IDF. That takes about
 - **On the command line:** `pio run -e zb-gw03-http -t upload`, which corresponds to `curl --data-binary @firmware.bin http://otoskop.local/update`.
 - **Via espota:** `pio run -e zb-gw03-ota -t upload`.
 
-If `OTA_PASSWORD` is set, it protects the update and every route that changes the device's configuration or connection: `/update`, `/restart`, `/eth10`, `/wifi/...`, `POST /wifi-setup`, `/cameras/select`, `/cameras/autoscan`, `/sniff/start`, `/sniff/stop`, `/camdiag/send`. Viewing and operating stay open: all GET pages, the LED, `/cameras/scan` and storing the calibration. With curl you pass it as the header `X-OTA-Password`. During an update some video packets are lost briefly because the flash is being written. That is normal.
+If `OTA_PASSWORD` is set, it protects the update and every route that changes the device's configuration or connection: `/update`, `/restart`, `/eth10`, `/wifi/...`, `POST /wifi-setup`, `/cameras/select`, `/cameras/autoscan`, `/camera/enabled`, `/stream/...` (switches), `/sniff/start`, `/sniff/stop`, `/camdiag/send`. The web UI asks for it once on the first protected action and keeps it for the browser session ("logged in" in the header, a click forgets it). Viewing and operating stay open: all GET pages, the LED, `/cameras/scan` and storing the calibration. With curl you pass it as the header `X-OTA-Password`. During an update some video packets are lost briefly because the flash is being written. That is normal.
 
 ## Rescue mode
 

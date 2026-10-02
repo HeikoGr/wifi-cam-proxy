@@ -33,6 +33,7 @@ void ethSet10Mbit(bool on);     // store and renegotiate (link briefly down)
 const char *wifiModeName();          // "bgn", "bg", "b"
 bool wifiSetMode(const char *name);  // store; takes effect on the next connection
 bool wifiSetTxPower(int qdbm);       // 8..84 in 0.25 dBm, store and apply
+int wifiTxPower();                   // the set value in 0.25 dBm
 float wifiTxDbm();                   // current transmit power
 
 // --- HTTP server (http.cpp) -------------------------------------------------------

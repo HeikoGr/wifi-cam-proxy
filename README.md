@@ -31,9 +31,10 @@ Wi-Fi and provides the image in the home network over Ethernet:
   <img src="docs/screenshots/live-phone.png" width="22%" alt="Live view on a phone">
 </p>
 <p align="center">
-  <img src="docs/screenshots/cameras.png" width="32%" alt="Camera selection">
-  <img src="docs/screenshots/status.png" width="32%" alt="Status and firmware update">
-  <img src="docs/screenshots/calibrate.png" width="32%" alt="Orientation calibration">
+  <img src="docs/screenshots/cameras.png" width="24%" alt="Camera selection">
+  <img src="docs/screenshots/settings.png" width="24%" alt="Settings">
+  <img src="docs/screenshots/status.png" width="24%" alt="Status and diagnostics">
+  <img src="docs/screenshots/calibrate.png" width="24%" alt="Orientation calibration">
 </p>
 
 The screenshots come from the [UI preview](tools/ui-preview/) with simulated device data and a
@@ -109,13 +110,15 @@ setup AP (default `wificam-setup`). You set the home Wi-Fi for rescue mode on th
 
 | Address | Purpose |
 |---|---|
-| `/` | live image, camera info, battery, LED, orientation correction, zoom |
+| `/` | live image, camera info, battery, LED, orientation correction, zoom, VLC link |
 | `/cameras` | cameras found, selection, rescan |
-| `/stream`, `/snapshot` | MJPEG and single frame (unrotated) |
+| `/settings` | switches (camera connection, live view, stream for VLC/HA, automatic scan), frame rate, Wi-Fi mode and transmit power, Ethernet speed, stream addresses and Home Assistant snippet |
+| `/info` | status: device, network, video counters, diagnostics (session log, raw capture, sniffer) |
+| `/update` | firmware update, restart |
+| `/stream`, `/stream.m3u`, `/snapshot` | MJPEG for VLC/Home Assistant, the same as VLC playlist, single frame (unrotated) |
 | `/calibrate` | calibrate the orientation sensor |
-| `/update` | status, Wi-Fi mode, Ethernet speed, firmware update |
 | `/wifi-setup` | home Wi-Fi for rescue mode |
-| `/status`, `/cameras.json` | counters, last crash, camera state |
+| `/status`, `/cameras.json`, `/settings.json` | counters and last crash, camera state, settings (JSON) |
 
 Details on usage, diagnostics and the measurements behind the settings are in
 [firmware/README.md](firmware/README.md), the full project documentation is in

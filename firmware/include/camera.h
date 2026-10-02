@@ -143,6 +143,11 @@ void cameraSetAutoScan(bool on);
 // sniffer, so the vendor app can connect). Resume reconnects to the current camera.
 void cameraPause(bool on);
 bool cameraPaused();
+// Connection to the camera switched on/off by the user (NVS cam_enabled, default on).
+// Off: as paused, also after a restart; the web UI and Ethernet stay reachable.
+// Applied by cameraLoop().
+bool cameraEnabled();
+void cameraSetEnabled(bool on);
 // For devices without a web UI (CYD): query state and scan list directly
 struct ScanEntry {
   char ssid[33];

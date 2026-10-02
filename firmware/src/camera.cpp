@@ -207,7 +207,7 @@ CamProto protoForSsid(const char *ssid) {
 }
 
 // --- State ----------------------------------------------------------------------
-enum class CamState : uint8_t { Off /* reconnect */, Connecting, Connected, Scanning, WaitChoice, Idle };
+enum class CamState : uint8_t { Off /* reconnect */, Connecting, Connected, Scanning, WaitChoice, Idle, Paused };
 static const char *stateKey(CamState s) {
   switch (s) {
     case CamState::Connecting: return "connecting";
@@ -215,6 +215,7 @@ static const char *stateKey(CamState s) {
     case CamState::Scanning: return "scanning";
     case CamState::WaitChoice: return "choose";
     case CamState::Idle: return "searching";
+    case CamState::Paused: return "off";
     default: return "restart";
   }
 }
@@ -235,7 +236,9 @@ static char selSsid[33], selPass[65];
 static CamProto selProto;
 static std::atomic<bool> scanPending{false};
 static std::atomic<bool> autoScan{true};      // see cameraSetAutoScan()
-static std::atomic<bool> paused{false};       // see cameraPause()
+static std::atomic<bool> paused{false};       // connection to the camera paused, see applyPause()
+static std::atomic<bool> enabled{true};       // user switch (NVS cam_enabled), see cameraSetEnabled()
+static std::atomic<bool> sniffing{false};     // the sniffer wants the camera Wi-Fi free, see cameraPause()
 
 // For the video task: wanted session, recreated via sessionGen on change
 static std::atomic<CamProto> wantProto{CamProto::None};    // None (paused), Auto or a protocol
@@ -330,6 +333,7 @@ static void loadPref() {
     prefProto = protoFromKey(p.getString("cam_proto", "auto").c_str());
     if (prefProto == CamProto::None) prefProto = CamProto::Auto;
     autoScan = p.getBool("cam_autoscan", true);
+    enabled = p.getBool("cam_enabled", true);
   });
 }
 
@@ -423,7 +427,10 @@ void cameraBegin() {
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);  // modem sleep loses packets with UDP video
-  if (*prefSsid) {
+  if (!enabled) {  // switched off in the settings: stay away from the camera
+    paused = true;
+    setState(CamState::Paused);
+  } else if (*prefSsid) {
     connectTo(prefSsid, prefPass, prefProto);  // fast path: without a scan
   } else {
     startScan(false);
@@ -487,7 +494,10 @@ static bool reconnectInstead() {
   return true;
 }
 
-void cameraPause(bool on) {
+// Pause while the sniffer runs or the user switched the connection off; from loop()
+// only (WiFi calls)
+static void applyPause() {
+  bool on = sniffing || !enabled;
   if (on == paused) return;
   paused = on;
   if (on) {
@@ -500,9 +510,23 @@ void cameraPause(bool on) {
   } else {
     crumb("camera: resumed");
   }
-  setState(CamState::Off);  // after resuming, the loop reconnects to the current camera
+  setState(on ? CamState::Paused : CamState::Off);  // Off: the loop reconnects to the current camera
+}
+
+void cameraPause(bool on) {
+  sniffing = on;
+  applyPause();
 }
 bool cameraPaused() { return paused; }
+
+bool cameraEnabled() { return enabled; }
+void cameraSetEnabled(bool on) {
+  if (on == enabled) return;
+  enabled = on;
+  nvsWrite([&](Preferences &p) { p.putBool("cam_enabled", on); });
+  crumb("camera: connection switched %s", on ? "on" : "off");
+  // loop() applies it (cameraLoop -> applyPause)
+}
 
 void cameraLoop() {
   if (savePref.exchange(false)) storePref();
@@ -512,7 +536,7 @@ void cameraLoop() {
     std::lock_guard<std::mutex> lock(diagRawMutex);
     if (diagRaw && millis() - diagRawAt > 30000) diagRaw.reset();
   }
-  if (updating || paused) return;
+  if (updating) return;
   if (rescueMode) {  // camera idle; only scans for the setup page (/wifi-setup)
     if (state == CamState::Scanning) {
       int n = WiFi.scanComplete();
@@ -526,6 +550,8 @@ void cameraLoop() {
     }
     return;
   }
+  applyPause();
+  if (paused) return;
 
   {
     std::unique_lock<std::mutex> lock(camMutex);
@@ -597,6 +623,8 @@ void cameraLoop() {
       choose();
       break;
     }
+    case CamState::Paused:  // only while paused, see applyPause()
+      break;
     case CamState::WaitChoice:
     case CamState::Idle:
       if (scanPending.exchange(false) ||
@@ -670,11 +698,11 @@ size_t cameraJson(char *out, size_t len) {
   add(snprintf(out + o, room(), ",\"proto\":\"%s\",\"preferred\":", protoKey(sessionProto)));
   add(jsonStr(out + o, room(), prefSsid));
   add(snprintf(out + o, room(),
-               ",\"pref_proto\":\"%s\",\"autoscan\":%s,\"recognized\":%d,\"scan_age_s\":%ld,"
+               ",\"pref_proto\":\"%s\",\"autoscan\":%s,\"enabled\":%s,\"recognized\":%d,\"scan_age_s\":%ld,"
                "\"orientation\":%s,\"battery\":%d,\"charging\":%d,\"led\":%d,\"led_supported\":%s,"
                "\"led_dimmable\":%s,\"led_level\":%d,\"battery_raw\":%d,"
                "\"width\":%u,\"height\":%u,\"rotation\":%d,\"vendor\":",
-               protoKey(prefProto), autoScan ? "true" : "false", recognized, scanAt ? (long)((millis() - scanAt) / 1000) : -1L,
+               protoKey(prefProto), autoScan ? "true" : "false", enabled ? "true" : "false", recognized, scanAt ? (long)((millis() - scanAt) / 1000) : -1L,
                telemetry.hasOrientation ? "true" : "false", (int)telemetry.battery,
                (int)telemetry.charging, (int)telemetry.led, telemetry.ledSupported ? "true" : "false",
                telemetry.ledDimmable ? "true" : "false", (int)ledLevel, (int)telemetry.batteryRaw,

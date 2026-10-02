@@ -35,7 +35,7 @@ static int wifiModeIndex(const char *m) {
 static std::atomic<int> wifiMode{wifiModeIndex(WIFI_MODE_DEFAULT)};
 // Wi-Fi transmit power in 0.25 dBm (8..84). High power disturbs the Ethernet clock the
 // ESP32 generates itself on GPIO17 -> lost Ethernet packets (measured on the device)
-static std::atomic<int> wifiTxQdbm{WIFI_TX_QDBM_DEFAULT};
+static std::atomic<int> txQdbm{WIFI_TX_QDBM_DEFAULT};
 
 void wifiApplyMode() {
   int mode = wifiMode;
@@ -44,7 +44,7 @@ void wifiApplyMode() {
                               : (WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
   esp_wifi_set_protocol(WIFI_IF_STA, proto);
   if (mode == 0) esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);  // 20 instead of 40 MHz
-  esp_wifi_set_max_tx_power(wifiTxQdbm);
+  esp_wifi_set_max_tx_power(txQdbm);
 }
 
 const char *wifiModeName() { return WIFI_MODES[wifiMode]; }
@@ -63,11 +63,13 @@ bool wifiSetMode(const char *name) {
 bool wifiSetTxPower(int qdbm) {
   if (qdbm < 8 || qdbm > 84) return false;
   nvsWrite([&](Preferences &p) { p.putInt("wifitx", qdbm); });
-  wifiTxQdbm = qdbm;
+  txQdbm = qdbm;
   esp_wifi_set_max_tx_power(qdbm);
   crumb("Wi-Fi transmit power -> %.2f dBm", qdbm / 4.0);
   return true;
 }
+
+int wifiTxPower() { return txQdbm; }
 
 float wifiTxDbm() {
   int8_t q = 0;
@@ -80,7 +82,7 @@ static void loadSettings() {
     int tx = p.getInt("wifitx", WIFI_TX_QDBM_DEFAULT);
     eth10 = p.getBool("eth10", ETH_10MBIT_DEFAULT);
     if (i >= 0) wifiMode = i;
-    if (tx >= 8 && tx <= 84) wifiTxQdbm = tx;
+    if (tx >= 8 && tx <= 84) txQdbm = tx;
   });
 }
 
