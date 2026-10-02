@@ -140,7 +140,7 @@ Tried without effect: keepalive START every 5 s, smaller send blocks, larger TCP
 
 | Tool | Purpose |
 |---|---|
-| `/status` | counters since start, among them `stalls_loss`/`stalls_clean`, `free_heap`/`min_heap`/`iram_heap`, `eth_speed`, and `last_crash` with the backtrace of the last crash |
+| `/status` | counters since start, among them `stalls_loss`/`stalls_clean`, `free_heap`/`min_heap`/`iram_heap`, `eth_speed`, `cpu_load` (percent per core over the last 5 s: core 0 Wi-Fi and network, core 1 video and web), and `last_crash` with the backtrace of the last crash |
 | serial console | events (connections, stalls, camera changes) and fps and heap every 5 s |
 
 `/log`, `/sensor`, `/crashtest` and the debug switches (`/debug/...`) were removed to save RAM. The packet header capture and the copy of the event log alone occupied ~6 KB of heap. The crash backtrace lives in RTC memory and costs no heap, so it stayed.

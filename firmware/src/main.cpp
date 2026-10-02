@@ -27,6 +27,7 @@
 
 #include "camera.h"
 #include "config.h"
+#include "cpuload.h"
 #include "crashlog.h"
 #include "device.h"
 #include "rescue.h"
@@ -150,9 +151,10 @@ void loop() {
     fps = (total - lastFrames) * 1000.0f / (millis() - lastStats);
     lastFrames = total;
     lastStats = millis();
-    Serial.printf("[stats] %.1f fps, %u frames, %u dropped, %d viewers, heap %u%s\r\n",
+    cpuLoadUpdate();
+    Serial.printf("[stats] %.1f fps, %u frames, %u dropped, %d viewers, heap %u, CPU %d/%d %%%s\r\n",
                   fps, (unsigned)total, (unsigned)stats.framesDropped, streamViewers(),
-                  heapFree(), rescueMode ? ", RESCUE MODE" : "");
+                  heapFree(), cpuLoad(0), cpuLoad(1), rescueMode ? ", RESCUE MODE" : "");
   }
   delay(10);
 }

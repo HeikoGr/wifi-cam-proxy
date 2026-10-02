@@ -731,6 +731,8 @@ async function status(){
       ['Mode',s.mode==='rescue'?'rescue':'normal',s.mode==='rescue'?'warnc':'ok'],
       ['Camera',(s.cam_proto||'none')+(s.battery>=0?' · battery '+s.battery+' %':'')],
       ['Memory',s.free_heap+' bytes free (lowest '+s.min_heap+', IRAM '+s.iram_heap+')',s.min_heap<8000?'warnc':''],
+      s.cpu_load&&s.cpu_load[0]>=0&&['CPU load','core 0 '+s.cpu_load[0]+' % (Wi-Fi, network) · core 1 '+s.cpu_load[1]+' % (video, web)',
+        Math.max(...s.cpu_load)>85?'warnc':''],
       ['Uptime',Math.floor(s.uptime_s/3600)+' h '+Math.floor(s.uptime_s%3600/60)+' min'],
       ['Firmware',esc(s.version)+' · '+esc(s.commit||'–')],
       ['Last reset',esc(s.reset_reason)+' (boot #'+s.boot_count+')'],

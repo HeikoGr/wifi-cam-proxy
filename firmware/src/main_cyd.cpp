@@ -32,6 +32,7 @@
 
 #include "camera.h"
 #include "config.h"
+#include "cpuload.h"
 #include "crashlog.h"
 #include "jpeg_reader.h"
 #include "settings.h"
@@ -585,18 +586,19 @@ void loop() {
     heap_caps_monitor_local_minimum_free_size_stop();
     heap_caps_monitor_local_minimum_free_size_start();
     float dt = (millis() - lastStats) / 1000.0f;
+    cpuLoadUpdate();
     // Artifacts with "damaged" > 0: Wi-Fi (packet loss). Without: look at draw ms vs.
     // the frame interval of the camera.
     Serial.printf("[stats] received %.1f fps, shown %.1f fps | lost pkts %u, damaged %u, incomplete %u, "
                   "too big %u, no mem %u, released %u, handshakes %u, RSSI %d | draw avg %u ms max %u ms, decode errors %u | battery %d%%%s | "
-                  "heap %u (min %u) | largest frame %u KB\r\n",
+                  "heap %u (min %u) | largest frame %u KB | CPU %d/%d %%\r\n",
                   (total - lastFrames) / dt, (drawn - lastDrawn) / dt, lost - lastLost,
                   damaged - lastDamaged, incomplete - lastIncomplete, tooBig - lastTooBig, noMem - lastNoMem,
                   released - lastReleased,
                   (unsigned)stats.handshakes, (int)WiFi.RSSI(),
                   drawn > lastDrawn ? (unsigned)(drawMsSum / (drawn - lastDrawn)) : 0u,
                   (unsigned)drawMsMax, decodeErr - lastDecodeErr, (int)telemetry.battery, telemetry.charging == 1 ? " (charging?)" : "",
-                  heapFree(), minNow, (unsigned)(stats.maxFrameBytes / 1024));
+                  heapFree(), minNow, (unsigned)(stats.maxFrameBytes / 1024), cpuLoad(0), cpuLoad(1));
     drawMsSum = 0;
     drawMsMax = 0;
     lastFrames = total;

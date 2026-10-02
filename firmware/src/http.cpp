@@ -17,6 +17,7 @@
 
 #include "camera.h"
 #include "config.h"
+#include "cpuload.h"
 #include "crashlog.h"
 #include "device.h"
 #include "settings.h"
@@ -359,7 +360,7 @@ static void handleStatus(Request &r) {
                    "\"dropped\":%u,\"drop_nomem\":%u,\"drop_toobig\":%u,\"drop_incomplete\":%u,\"packets_lost\":%u,\"damaged\":%u,\"released\":%u,\"max_frame\":%u,\"handshakes\":%u,\"keepalives\":%u,\"stalls_loss\":%u,\"stalls_clean\":%u,\"clean_stall_times\":[%s],\"stream_clients\":%d,\"sse_clients\":%d,\"client_tasks\":%d,"
                    "\"wifi_connected\":%s,\"wifi_ssid\":\"%s\",\"wifi_rssi\":%d,\"wifi_mode\":\"%s\",\"wifi_tx_dbm\":%.2f,\"wifi_ip\":\"%s\",\"home_ssid\":\"%s\",\"ap\":\"%s\",\"eth10\":%d,"
                    "\"cam_proto\":\"%s\",\"battery\":%d,\"led\":%d,"
-                   "\"eth_begin\":%s,\"eth_started\":%s,\"eth_link\":%s,\"eth_speed\":%d,\"eth_full_duplex\":%s,\"eth_tx_store_forward\":%d,\"eth_ip\":\"%s\",\"free_heap\":%u,\"max_alloc\":%u,\"min_heap\":%u,\"iram_heap\":%u,\"psram\":%u,\"uptime_s\":%lu,\"last_crash\":\"%s\"}",
+                   "\"eth_begin\":%s,\"eth_started\":%s,\"eth_link\":%s,\"eth_speed\":%d,\"eth_full_duplex\":%s,\"eth_tx_store_forward\":%d,\"eth_ip\":\"%s\",\"free_heap\":%u,\"max_alloc\":%u,\"min_heap\":%u,\"iram_heap\":%u,\"psram\":%u,\"cpu_load\":[%d,%d],\"uptime_s\":%lu,\"last_crash\":\"%s\"}",
                    FW_VERSION, FW_COMMIT, resetReasonText(), (unsigned)bootCount(), rescueMode ? "rescue" : "normal", currentFps(),
                    (unsigned)stats.framesTotal, (unsigned)stats.framesDropped, (unsigned)stats.dropNoMem,
                    (unsigned)stats.dropTooBig, (unsigned)stats.dropIncomplete, (unsigned)stats.packetsLost, (unsigned)stats.framesDamaged,
@@ -371,7 +372,8 @@ static void handleStatus(Request &r) {
                    protoKey(cameraProto()), (int)telemetry.battery, (int)telemetry.led,
                    eth.beginOk ? "true" : "false", eth.started ? "true" : "false", eth.link ? "true" : "false",
                    eth.speed, eth.fullDuplex ? "true" : "false", eth.storeForward, eth.ip,
-                   heapFree(), heapBlock(), heapMin(), iramFree(), (unsigned)ESP.getPsramSize(), millis() / 1000, crash);
+                   heapFree(), heapBlock(), heapMin(), iramFree(), (unsigned)ESP.getPsramSize(), cpuLoad(0), cpuLoad(1),
+                   millis() / 1000, crash);
   n = constrain(n, 0, (int)JSON_MAX - 1);  // never send more than the buffer holds
   sendResponse(r.fd, 200, "OK", "application/json", json.get(), n);
 }

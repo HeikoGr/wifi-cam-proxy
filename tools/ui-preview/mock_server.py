@@ -170,7 +170,7 @@ class State:
             "eth_begin": True, "eth_started": True, "eth_link": not rescue, "eth_speed": 0 if rescue else 10,
             "eth_full_duplex": True, "eth_tx_store_forward": 1,
             "eth_ip": "" if rescue else "192.168.178.130",
-            "free_heap": 61234, "max_alloc": 31732, "min_heap": 23116, "iram_heap": 18432, "psram": 0,
+            "free_heap": 61234, "max_alloc": 31732, "min_heap": 23116, "iram_heap": 18432, "psram": 0, "cpu_load": [31, 12],
             "uptime_s": int(time.time() - self.start) + 3 * 3600 + 17 * 60, "last_crash": "",
         }
 
