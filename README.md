@@ -17,6 +17,8 @@ WLAN mit der Kamera und stellt das Bild über Ethernet im Heimnetz bereit:
   Reichweite, wählst du in der Weboberfläche eine aus (`/cameras`).
 - **Lagekorrektur** im Browser für Otoskope mit Lagesensor: Das Bild dreht sich mit, wenn der
   Stift gedreht wird. Dazu gibt es eine Kalibrierseite.
+- **Vergrößerung 2×** im Browser (Knopf oder Doppelklick, Ausschnitt per Ziehen verschieben).
+  Das Bild kommt quadratisch an, rund beschneiden lässt es sich optional.
 - **Akkustand und LED** der Kamera, soweit das Protokoll sie kennt
 - Firmware-Update im Browser, Absturz-Backtrace in `/status`
 - **Notfall-Modus** ohne Ethernet: Heim-WLAN oder eigener Access Point `WiFi-Cam-XXXX` mit

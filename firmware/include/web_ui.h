@@ -71,8 +71,13 @@ class Smoother{
     return true;
   }
 }
-// Dreht ein Element immer den kürzesten Weg
-function rotator(el){let shown=0;return t=>{shown+=norm(t-shown);el.style.transform='rotate('+shown.toFixed(1)+'deg)'}}
+// Dreht ein Element immer den kürzesten Weg; optional mit Vergrößerung und
+// Verschiebung view={z,px,py}. Aufruf ohne Winkel wendet nur view neu an.
+function rotator(el,view){
+  let shown=0;view=view||{z:1,px:0,py:0};
+  return t=>{if(t!==undefined)shown+=norm(t-shown);
+    el.style.transform='translate('+view.px+'px,'+view.py+'px) rotate('+shown.toFixed(1)+'deg) scale('+view.z+')'};
+}
 
 // Kamera-Info (/cameras.json): Name, Akku, LED, Lagesensor
 async function camInfo(){try{return await (await fetch('/cameras.json',{cache:'no-store'})).json()}catch(e){return null}}
@@ -92,14 +97,17 @@ function orientation(onSample,onState){
 
 static const char INDEX_HTML[] = "<!doctype html><html><head><title>WiFi-Cam</title>" PAGE_STYLE
     R"HTML(<style>#wrap{display:inline-block;transition:transform .12s linear}
+#view{display:inline-block;overflow:hidden;line-height:0;cursor:zoom-in}#view.z{cursor:grab;touch-action:none}
 label{margin:0 8px;white-space:nowrap}.ctl{margin:8px 0}
 #ledBtn{font-size:1.2rem;padding:4px 10px;border-radius:6px;border:none;cursor:pointer;background:#333;color:#ddd}
 #ledBtn.on{background:#f5c518;color:#111}#cam{color:#888;font-size:.9rem}</style>
 </head><body><h3>Live</h3>
 <p id='choose' class='warn' hidden>Mehrere Kameras gefunden. Bitte unter <a href='/cameras'>Kamera wählen</a> eine auswählen.</p>
 <p id='cam'>…</p>
-<div id='wrap'><img id='img' class='round' src='/stream'></div>
-<div class='ctl'><span id='ori'><label><input type='checkbox' id='on'> Lage korrigieren</label>
+<div id='view' title='Doppelklick: vergrößern'><div id='wrap'><img id='img' src='/stream'></div></div>
+<div class='ctl'><button id='zoom' title='Vergrößern, dann Bild mit der Maus/dem Finger verschieben'>2&times;</button>
+<span id='ori'><label><input type='checkbox' id='on'> Lage korrigieren</label>
+<label><input type='checkbox' id='round'> Rund</label>
 <button id='zero'>Aktuelle Lage = oben</button></span>
 <button id='ledBtn' title='Kamera-LED ein/aus' hidden>&#128261;</button></div>
 <p id='ledMsg' style='font-size:.8rem;color:#888'></p>
@@ -108,7 +116,24 @@ label{margin:0 8px;white-space:nowrap}.ctl{margin:8px 0}
 <a href='/calibrate' id='calLink'>Kalibrieren</a> &middot; <a href='/update'>Status &amp; Update</a></p>
 <script src='/app.js'></script><script>
 let cal=Object.assign({},DEFAULT_CAL), hasOri=true;
-const sm=new Smoother(), rot=rotator($('wrap'));
+const view={z:1,px:0,py:0}, sm=new Smoother(), rot=rotator($('wrap'),view);
+// Vergrößerung 2x: Ausschnitt per Ziehen verschieben, höchstens bis zum Bildrand
+function setZoom(z){view.z=z;view.px=view.py=0;$('zoom').innerHTML=z>1?'1&times;':'2&times;';$('view').className=z>1?'z':'';rot()}
+function clampPan(){
+  const mx=(view.z-1)*$('img').clientWidth/2, my=(view.z-1)*$('img').clientHeight/2;
+  view.px=Math.max(-mx,Math.min(mx,view.px));view.py=Math.max(-my,Math.min(my,view.py));
+}
+$('zoom').onclick=()=>setZoom(view.z>1?1:2);
+$('view').ondblclick=()=>setZoom(view.z>1?1:2);
+let drag=null;
+$('view').onpointerdown=e=>{if(view.z>1){drag={x:e.clientX-view.px,y:e.clientY-view.py};$('view').setPointerCapture(e.pointerId);$('wrap').style.transition='none'}};
+$('view').onpointermove=e=>{if(drag){view.px=e.clientX-drag.x;view.py=e.clientY-drag.y;clampPan();rot()}};
+$('view').onpointerup=$('view').onpointercancel=()=>{drag=null;$('wrap').style.transition=''};
+// Rund beschneiden: nur Darstellung (das Bild kommt quadratisch), Standard aus
+$('round').checked=store.get('round',false);
+function applyRound(){$('img').className=hasOri&&$('round').checked?'round':''}
+$('round').onchange=()=>{store.set('round',$('round').checked);applyRound()};
+applyRound();
 $('on').checked=store.get('on',false);
 // Ohne Lagesensor (z.B. Mikroskop): Bild ungedreht und eckig, Lage-Bedienung aus
 function apply(){rot(hasOri?imageRotation($('on').checked,sm,cal):0)}
@@ -139,7 +164,7 @@ async function info(){
   // bleibt die Otoskop-Ansicht. MaxSee-Mikroskope haben keinen.
   if(c.state==='connected'){
     const ori=c.orientation||(c.proto==='i4season'&&!c.width);
-    if(ori!==hasOri){hasOri=ori;$('img').className=ori?'round':'';$('ori').hidden=!ori;$('calLink').hidden=!ori;apply()}
+    if(ori!==hasOri){hasOri=ori;applyRound();$('ori').hidden=!ori;$('calLink').hidden=!ori;apply()}
   }
   $('ledBtn').hidden=!c.led_supported;
   if(c.led>=0&&(c.led===1)!==ledOn){ledOn=c.led===1;applyLed()}
@@ -167,7 +192,7 @@ input[type=range]{width:100%}
 
 <div class='card'><h4>Live</h4>
 <div class='row'>
- <div id='wrap'><img id='live' class='round' alt=''></div>
+ <div id='wrap'><img id='live' alt=''></div>
  <svg id='dial' width='200' height='200' viewBox='-100 -100 200 200'>
   <circle r='90' fill='none' stroke='#555' stroke-width='2'/>
   <g stroke='#777' stroke-width='2'><line y1='-90' y2='-78'/><line x1='90' x2='78'/><line y1='90' y2='78'/><line x1='-90' x2='-78'/></g>
@@ -232,6 +257,7 @@ const Q_TEXT=['Markierung nach OBEN','¼ weiter (Markierung RECHTS bzw. seitlich
 
 // Livebild nur bei Bedarf: ohne Stream bleibt mehr WLAN-Bandbreite für die Sensordaten
 function live(){$('live').src=($('liveOn').checked&&!rec)?'/stream?'+Date.now():''}
+$('live').className=store.get('round',false)?'round':'';  // wie auf der Startseite
 $('liveOn').checked=store.get('calLive',false);
 $('liveOn').onchange=()=>{store.set('calLive',$('liveOn').checked);live()};
 live();
