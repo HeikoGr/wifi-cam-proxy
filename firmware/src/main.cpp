@@ -117,7 +117,7 @@ static std::atomic<bool> eth10{ETH_10MBIT_DEFAULT};  // Ethernet nur 10 Mbit, si
 static void ethApplySpeed();
 
 static void setZigbee(bool on) {
-  // GPIO13 = nRST des Zigbee-Moduls: LOW hält es im Reset (stumm, spart Strom)
+  if (ZIGBEE_NRST_GPIO < 0) return;
   zigbeeOn = on;
   pinMode(ZIGBEE_NRST_GPIO, OUTPUT);
   digitalWrite(ZIGBEE_NRST_GPIO, on ? HIGH : LOW);
@@ -1146,7 +1146,10 @@ static void onNetworkEvent(arduino_event_id_t event, arduino_event_info_t info) 
   }
 }
 
-static void setLed(int pin, bool on) { digitalWrite(pin, on ? LOW : HIGH); }
+static void setLed(int pin, bool on) {
+  if (pin < 0) return;
+  digitalWrite(pin, LED_ACTIVE_HIGH ? (on ? HIGH : LOW) : (on ? LOW : HIGH));
+}
 
 static void enterRescueMode() {
   rescueMode = true;
@@ -1172,7 +1175,7 @@ static void startOta() {
 
 void setup() {
   pinMode(LED_GREEN_GPIO, OUTPUT);
-  pinMode(LED_RED_GPIO, OUTPUT);
+  if (LED_RED_GPIO >= 0) pinMode(LED_RED_GPIO, OUTPUT);
   setZigbee(false);  // Zigbee wird nicht gebraucht: stumm schalten
   setLed(LED_GREEN_GPIO, true);
   setLed(LED_RED_GPIO, false);
