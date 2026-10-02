@@ -617,7 +617,7 @@ static void clientTask(void *arg) {
 
     bool get = strncmp(req.get(), "GET ", 4) == 0;
     bool post = strncmp(req.get(), "POST ", 5) == 0;
-    char path[32] = "";
+    char path[160] = "";  // longest: /camdiag/send/<port>/<64 bytes as hex>; longer paths are not served
     const char *p = req.get() + (get ? 4 : post ? 5 : 0);
     size_t plen = strcspn(p, " ?\r\n");
     if (plen < sizeof(path)) memcpy(path, p, plen), path[plen] = 0;
