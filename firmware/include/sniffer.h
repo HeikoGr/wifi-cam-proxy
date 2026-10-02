@@ -4,7 +4,8 @@
 // the bridge leaves the camera Wi-Fi, listens in promiscuous mode on its channel and
 // records the UDP and TCP packets to and from the camera (without the UDP video) and
 // notes other IP protocols. Works because the camera Wi-Fi is open (unencrypted). The
-// bridge stays reachable via Ethernet.
+// bridge stays reachable via Ethernet. The recording (18 KB) is freed when the sniffer
+// stops, so read it before.
 
 #include <Arduino.h>
 

@@ -195,7 +195,14 @@ void sniffStop() {
   esp_wifi_set_promiscuous_rx_cb(nullptr);
   active = false;
   wifiApplyMode();  // back to the bridge's own mode
-  // the recording stays readable until the next start
+  // Free the recording (18 KB): it would stay missing in the frame store of the 720p
+  // cameras. So read it with GET /sniff before stopping.
+  portENTER_CRITICAL(&mux);
+  Entry *old = ring;
+  ring = nullptr;
+  head = count = 0;
+  portEXIT_CRITICAL(&mux);
+  free(old);
   cameraPause(false);
   crumb("sniffer: off");
 }
@@ -205,7 +212,7 @@ bool sniffActive() { return active; }
 bool sniffText(void (*put)(void *ctx, const char *line), void *ctx) {
   char line[700];
   if (!ring) {
-    put(ctx, "No recording yet. Start with POST /sniff/start\n");
+    put(ctx, "No recording (it is freed on /sniff/stop). Start with POST /sniff/start\n");
     return true;
   }
   int n, first;
