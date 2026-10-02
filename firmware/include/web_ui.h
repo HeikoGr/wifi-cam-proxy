@@ -116,9 +116,9 @@ function correct(a,c){
   return ti.s0+ti.k*(T[i]+(v-U[i])/(U[i+1]-U[i])*(T[i+1]-T[i]));
 }
 // orientation relative to the zero point; the image is rotated by its negative
-function lageAngle(x,y,c){return norm(correct(sensorAngle(x,y,c),c)-c.zero)}
+function probeAngle(x,y,c){return norm(correct(sensorAngle(x,y,c),c)-c.zero)}
 // image rotation: always the base rotation, with orientation correction also -angle
-function imageRotation(on,sm,c){return c.base-(on&&sm.have?lageAngle(sm.x,sm.y,c):0)}
+function imageRotation(on,sm,c){return c.base-(on&&sm.have?probeAngle(sm.x,sm.y,c):0)}
 
 // smooths the vector instead of the angle (no jump at 180/-180)
 class Smoother{
@@ -369,7 +369,7 @@ function changed(){dirty=true;$('msg').textContent='Unsaved changes.';$('msg').c
 // --- Live ---
 function render(){
   if(sm.have){
-    const l=lageAngle(sm.x,sm.y,W);
+    const l=probeAngle(sm.x,sm.y,W);
     rot(imageRotation(true,sm,W));
     $('needle').setAttribute('transform','rotate('+l.toFixed(1)+')');
   }else rot(W.base);
@@ -378,7 +378,7 @@ function render(){
     kv($('vals'),[['raw','x '+last.x+' · y '+last.y+' · z '+last.z+' · |g| '+g.toFixed(0)],
       ['sensor angle',sensorAngle(last.x,last.y,W).toFixed(1)+'°'],
       ['corrected',correct(sensorAngle(last.x,last.y,W),W).toFixed(1)+'°'],
-      ['orientation',(sm.have?lageAngle(sm.x,sm.y,W).toFixed(1):'–')+'° (to zero point)']]);
+      ['orientation',(sm.have?probeAngle(sm.x,sm.y,W).toFixed(1):'–')+'° (to zero point)']]);
   }
   $('smV').textContent=W.smooth.toFixed(2); $('sm').value=W.smooth;
   renderQ();

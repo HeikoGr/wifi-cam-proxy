@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-soulear_viewer.py - show the live image of a Soulear/AiSee otoscope (Beken BK7231U,
+soulear-viewer.py - show the live image of a Soulear/AiSee otoscope (Beken BK7231U,
 firmware "XRH") in a browser, VLC or ffplay - without the vendor app.
 
 Sequence:
@@ -12,7 +12,7 @@ Sequence:
 Protocol basis: pedrodinisf/otoscope-viewer and Fyfar/ms5-wifi-microscope (both GitHub).
 Only the Python standard library is needed.
 
-Usage:  python3 soulear_viewer.py [CAMERA_IP]
+Usage:  python3 soulear-viewer.py [CAMERA_IP]
 Then:   http://127.0.0.1:45100          (browser)
         http://127.0.0.1:45100/stream   (VLC / ffplay)
         http://127.0.0.1:45100/snapshot (single frame)

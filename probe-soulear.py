@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# probe_soulear.py
+# probe-soulear.py
 # Sends the i4season command "GetDeviceInfo" to the otoscope
 # and prints what the device reveals about itself.
 # Basis: protocol documentation from Fyfar/ms5-wifi-microscope

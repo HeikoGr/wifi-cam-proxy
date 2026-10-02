@@ -88,7 +88,7 @@ If `custom_sdkconfig` changes, the next build rebuilds ESP-IDF. That takes about
 - **On the command line:** `pio run -e zb-gw03-http -t upload`, which corresponds to `curl --data-binary @firmware.bin http://otoskop.local/update`.
 - **Via espota:** `pio run -e zb-gw03-ota -t upload`.
 
-If `OTA_PASSWORD` is set, it applies to all routes. With curl you pass it as the header `X-OTA-Password`. During an update some video packets are lost briefly because the flash is being written. That is normal.
+If `OTA_PASSWORD` is set, it protects the update and every route that changes the device's configuration or connection: `/update`, `/restart`, `/eth10`, `/wifi/...`, `POST /wifi-setup`, `/cameras/select`, `/cameras/autoscan`, `/sniff/start`, `/sniff/stop`, `/camdiag/send`. Viewing and operating stay open: all GET pages, the LED, `/cameras/scan` and storing the calibration. With curl you pass it as the header `X-OTA-Password`. During an update some video packets are lost briefly because the flash is being written. That is normal.
 
 ## Rescue mode
 

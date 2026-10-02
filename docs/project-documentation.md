@@ -359,7 +359,6 @@ Serial console (115200 baud) every 5 s:
 | `/camdiag` | GET | first packets of the current camera session as hex (text) |
 | `/camdiag/raw` | GET | raw capture of one whole frame (all UDP packets with headers): first call requests it (202), the next one fetches it; freed after 30 s if nobody fetches it |
 | `/camdiag/send/<port>/<hex>` | POST | experiment: the camera session sends these bytes (max. 64) to the camera's port from its command socket; the camera's messages appear in `/camdiag` |
-| `/led/<0\|1>` | POST | camera LED off/on (on = last brightness) |
 | `/led/level/<0..100>` | POST | LED brightness in % for dimmable cameras (JHCMD), 0 = off |
 | `/led` | GET | `{"led":0\|1,"level":%}`: small state for the live page's one-second polling (no 3 KB buffer like `/cameras.json`) |
 | `/sniff/start[/<channel>[/above\|below\|none]]` | POST | sniffer: leave the camera Wi-Fi, record the UDP/TCP traffic of the vendor app with the camera (without UDP video) on the camera's channel, 11n, HT40 as in its beacon |
@@ -367,7 +366,7 @@ Serial console (115200 baud) every 5 s:
 | `/wifi-setup` | GET/POST | home Wi-Fi for rescue mode (form `ssid`, `pass`) |
 | `/eth10/<0\|1>` | POST | Ethernet 10 Mbit on/off |
 | `/orientation` | GET | server-sent events: orientation sensor ~17×/s |
-| `/led/0`, `/led/1` | POST | camera LED off/on (i4season 0x0A, waits for confirmation; JHCMD: last brightness) |
+| `/led/0`, `/led/1` | POST | camera LED off/on (i4season 0x0A, waits for confirmation; JHCMD: on = last brightness) |
 | `/cameras` | GET | choose camera (scan list, selection) |
 | `/cameras.json` | GET | camera state, telemetry (battery, LED, device), scan list |
 | `/cameras/scan` | POST | scan again |
@@ -376,6 +375,11 @@ Serial console (115200 baud) every 5 s:
 | `/wifi/<bgn\|bg\|b>` | POST | switch the Wi-Fi mode towards the camera |
 | `/wifi/tx/<8..84>` | POST | Wi-Fi transmit power in 0.25 dBm |
 | `/restart` | POST | restart |
+
+With `OTA_PASSWORD` set (header `X-OTA-Password`, a wrong one gives 401): `POST /update`, `/restart`,
+`/eth10/…`, `/wifi/…`, `POST /wifi-setup`, `/cameras/select`, `/cameras/autoscan/…`,
+`/sniff/start`, `/sniff/stop`, `/camdiag/send/…`. Open: all GET routes, the LED routes,
+`/cameras/scan` and `POST /calibration` (the calibration page has no password field).
 
 | Live view | Cameras | Calibration |
 |---|---|---|
