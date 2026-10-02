@@ -77,9 +77,16 @@ int main(int argc, char **argv) {
     // FDWN status answer (48 bytes): byte 32 is taken as the raw battery value
     std::string st("FDWN\x00\x00\x01\x00\x1a\x00\x00\x05", 12); st.resize(48, 0); st[32] = (char)0x8a;
     msg(st);
-    bool ok5 = telemetry.batteryRaw == 0x8a;
+    bool ok5 = telemetry.batteryRaw == 0x8a && telemetry.battery == 40;  // 138 - 91 = 47 -> 40 %
     st[32] = (char)0x89; msg(st);
-    bool ok6 = telemetry.batteryRaw == 0x89;
+    bool ok6 = telemetry.batteryRaw == 0x89 && telemetry.battery == 40;
+    // the pairs read off the app: raw -> displayed %
+    struct { int raw, pct; } pairs[] = {{110, 10}, {115, 20}, {137, 40}, {148, 50}, {152, 60}, {160, 60}, {162, 70},
+                                         {91, 0}, {60, 0}, {191, 100}, {255, 100}};
+    for (auto &p : pairs) {
+      st[32] = (char)p.raw; msg(st);
+      if (telemetry.battery != p.pct) { printf("FAIL: raw %d -> %d %%, expected %d %%\n", p.raw, (int)telemetry.battery, p.pct); ok6 = false; }
+    }
     printf("%-22s button 60 %d, button off %d, info reply %d (product '%s'), FDWN 30 %d, status raw %d/%d\n", "light button",
            ok1, ok2, ok3, telemetry.product, ok4, ok5, ok6);
     if (!ok1 || !ok2 || !ok3 || !ok4 || !ok5 || !ok6) fails++;

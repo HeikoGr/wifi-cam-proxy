@@ -45,11 +45,14 @@ const uint8_t CMD_STOP[] = {'J', 'H', 'C', 'M', 'D', 0xD0, 0x02};
 // received, so a message is only missed if both UDP packets get lost (weak Wi-Fi).
 // Status query of the app, every 5 s: "FDWN" 00 00 01 00 00 00 to port 20001; the camera
 // answers to the client's port 20001 with 48 bytes: "FDWN" 00 00 01 00 1a 00 00 05 ...,
-// byte 32 = 0x8a, 0x89 in two consecutive answers while the app's battery display went
-// from 50 to 40 % (probably the battery as an 8-bit value), at 40 the camera's MAC.
+// byte 32 is the battery, at 40 the camera's MAC. Compared with the app's display (10 %
+// steps, rounded down) by sniffing: raw 110 = 10 %, 115 = 20, 137 = 40, 148 = 50, 60 % from
+// 148..152 to 160, 70 % from 160..162. That fits percent = raw - 91 (60 % at 151, 70 % at
+// 161). The value is higher while charging (+36 when the cable was plugged in, no flag).
 const uint8_t FDWN_STATUS_REQ[] = {'F', 'D', 'W', 'N', 0x00, 0x00, 0x01, 0x00, 0x00, 0x00};
 const size_t FDWN_STATUS_LEN = 48;
 const size_t FDWN_BATTERY_BYTE = 32;
+const int BATTERY_RAW_ZERO = 91;  // percent = raw - 91
 const uint32_t FDWN_POLL_MS = 5000;
 
 class JhcmdSession : public CamSession {
@@ -333,10 +336,12 @@ class JhcmdSession : public CamSession {
     }
   }
 
-  // 48-byte status answer on 20001: byte 32 = battery (8-bit value, scale not known yet).
-  // Logged whenever something in it changes.
+  // 48-byte status answer on 20001: byte 32 = battery (percent = raw - 91, like the app
+  // shown in 10 % steps). Logged whenever something in it changes.
   void handleStatus(const uint8_t *m) {
-    telemetry.batteryRaw = m[FDWN_BATTERY_BYTE];
+    int raw = m[FDWN_BATTERY_BYTE];
+    telemetry.batteryRaw = raw;
+    telemetry.battery = constrain(raw - BATTERY_RAW_ZERO, 0, 100) / 10 * 10;
     if (haveStatus_ && !memcmp(lastStatus_, m, FDWN_STATUS_LEN)) return;
     haveStatus_ = true;
     memcpy(lastStatus_, m, FDWN_STATUS_LEN);
