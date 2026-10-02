@@ -585,23 +585,24 @@ status();setInterval(status,3000);
 static const char CAMERAS_HTML[] = PAGE_HEAD("Cameras")
     R"HTML(<style>.cur{color:var(--ok);font-weight:600}td:last-child{text-align:right}
 .sig{display:inline-flex;gap:2px;align-items:flex-end;height:12px;margin-right:6px;vertical-align:-1px}
-.sig i{width:3px;background:var(--line);border-radius:1px}.sig i.on{background:var(--accent)}</style>
+.sig i{width:3px;background:var(--line);border-radius:1px}.sig i.on{background:var(--accent)}
+.net td:nth-child(2){white-space:nowrap}
+@media(max-width:560px){.net tr{display:flex;flex-wrap:wrap;align-items:center;column-gap:10px;padding:6px 0;
+border-bottom:1px solid var(--line)}.net td{border:0;padding:2px}.net td:first-child{flex-basis:100%}
+.net td:nth-child(4){margin-left:auto}}</style>
 </head><body>)HTML" PAGE_NAV R"HTML(<main>
 <h1>Cameras</h1>
 <div class='card'><dl class='kv' id='st'><dt>State</dt><dd>loading…</dd></dl></div>
-<div class='card'><h2>Recognised cameras</h2><table id='rec'></table>
+<div class='card'><h2>Recognised cameras</h2><table id='rec' class='net'></table>
 <p><button id='scan'>&#8635; Rescan</button> <button id='forget'>Clear selection (automatic)</button></p>
 <p class='muted small'>The device remembers the chosen camera and reconnects to it at startup. If it
 is off, the device takes another recognised camera if exactly one is in range. Scanning while the
 image is running makes it stutter briefly.</p></div>
 <div class='card'><h2>Other networks</h2>
 <p class='muted small'>Unknown camera? Try it here with protocol “automatic” (192.168.29.1 →
-MaxSee, otherwise i4season).</p>
-<table id='oth'></table></div>
+JHCMD, otherwise by name, else i4season). No image? Pick another protocol and reconnect.</p>
+<table id='oth' class='net'></table></div>
 <div class='card'><h2>Connection options</h2>
-<p>Protocol <select id='proto'><option value='auto'>automatic</option>
-<option value='i4season'>i4season (Soulear, MS5, MAX-VIEW)</option>
-<option value='jhcmd'>MaxSee/JoyHonest (JHCMD)</option></select></p>
 <input type='password' id='wpw' class='field' placeholder='Wi-Fi password of the camera (usually empty)'>
 <input type='password' id='pw' class='field' placeholder='OTA password (if set)'>
 <p id='msg'></p></div>
@@ -610,12 +611,18 @@ const STATE={connected:'connected',connecting:'connecting…',scanning:'scanning
 // signal strength as 4 bars
 function sig(r){const n=r>-55?4:r>-65?3:r>-75?2:1;let h='<span class=sig title="'+r+' dBm">';
   for(let i=1;i<=4;i++)h+='<i class='+(i<=n?'on':'')+' style="height:'+(i*3)+'px"></i>';return h+'</span>'}
+// protocol per network: the choice survives the 4 s refresh; default for the active
+// camera is its current protocol, otherwise "automatic"
+const PROTOS=[['auto','automatic'],['i4season','i4season'],['jhcmd','JHCMD']], chosen={};
+function protoOf(n,c){return chosen[n.ssid]||(n.ssid===c.ssid&&c.proto?c.proto:'auto')}
 function row(n,c){
-  const cur=n.ssid===c.ssid&&c.state==='connected';
-  return '<tr><td class='+(cur?'cur':'')+'>'+esc(n.ssid)+(n.ssid===c.preferred?' ★':'')+'</td><td>'+sig(n.rssi)+
+  const cur=n.ssid===c.ssid&&c.state==='connected', p=protoOf(n,c);
+  return '<tr><td class='+(cur?'cur':'')+'>'+esc(n.ssid)+(n.ssid===c.preferred?' ★':'')+
+    (cur?' <span class="ok small">active</span>':'')+'</td><td>'+sig(n.rssi)+
     '<span class="muted small">'+n.rssi+' dBm</span></td><td class="muted small">'+(n.open?'open':'&#128274;')+
-    '</td><td><span class=badge>'+(n.proto||'–')+'</span></td><td>'+
-    (cur?'<span class=ok>active</span>':'<button data-s="'+esc(n.ssid)+'">Connect</button>')+'</td></tr>';
+    '</td><td><select data-p="'+esc(n.ssid)+'">'+PROTOS.map(([k,l])=>'<option value='+k+(k===p?' selected':'')+'>'+l+
+    '</option>').join('')+'</select></td><td><button data-s="'+esc(n.ssid)+'">'+(cur?'Reconnect':'Connect')+
+    '</button></td></tr>';
 }
 async function load(){
   const c=await camInfo();
@@ -627,16 +634,21 @@ async function load(){
     c.battery>=0&&['Battery',c.battery+' %'],
     ['Remembered',c.preferred?esc(c.preferred):'– (automatic)'],
     ['Last scan',c.scan_age_s<0?'none yet':c.scan_age_s+' s ago']]);
+  // do not rebuild the tables while a protocol list is open (it would close)
+  if(document.activeElement&&document.activeElement.matches('select[data-p]'))return;
   const rec=c.networks.filter(n=>n.proto), oth=c.networks.filter(n=>!n.proto);
   $('rec').innerHTML=rec.length?rec.map(n=>row(n,c)).join(''):'<tr><td class=muted>none in range</td></tr>';
   $('oth').innerHTML=oth.map(n=>row(n,c)).join('')||'<tr><td class=muted>none</td></tr>';
   document.querySelectorAll('button[data-s]').forEach(b=>b.onclick=()=>select(b.dataset.s));
+  document.querySelectorAll('select[data-p]').forEach(s=>s.onchange=()=>{chosen[s.dataset.p]=s.value;s.blur()});
 }
 async function post(url,body){
   const r=await fetch(url,{method:'POST',headers:otaHeaders({'Content-Type':'application/x-www-form-urlencoded'}),body});
   $('msg').textContent=r.status+': '+await r.text();setTimeout(load,1500);
 }
-function select(ssid){post('/cameras/select',new URLSearchParams({ssid,pass:$('wpw').value,proto:$('proto').value}).toString())}
+function select(ssid){
+  const s=[...document.querySelectorAll('select[data-p]')].find(e=>e.dataset.p===ssid);
+  post('/cameras/select',new URLSearchParams({ssid,pass:$('wpw').value,proto:s?s.value:'auto'}).toString())}
 $('forget').onclick=()=>post('/cameras/select','ssid=');
 $('scan').onclick=async()=>{await fetch('/cameras/scan',{method:'POST'});$('msg').textContent='Scanning…';setTimeout(load,4000)};
 load();setInterval(load,4000);
