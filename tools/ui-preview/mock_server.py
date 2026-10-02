@@ -10,7 +10,7 @@ as simulated, with --image a real one (a JPEG file or a URL, e.g. the snapshot o
 running device).
 
     python3 tools/ui-preview/mock_server.py [--port 8080] [--scenario normal|choose|rescue]
-                                            [--image http://otoskop.local/snapshot]
+                                            [--image http://wifi-cam.local/snapshot]
 
 Then open http://127.0.0.1:8080/. Needs g++ (or c++) and Pillow (pip install pillow).
 """
@@ -61,7 +61,7 @@ def build_pages() -> dict:
 
 
 def load_image(source: str) -> bytes:
-    """A real camera picture from a JPEG file or a URL (e.g. http://otoskop.local/snapshot).
+    """A real camera picture from a JPEG file or a URL (e.g. http://wifi-cam.local/snapshot).
 
     The simulated camera is a Soulear: square picture, which the web UI turns by -90°.
     Crop the middle square and deliver it turned the other way so it ends up upright."""
@@ -137,7 +137,7 @@ class State:
             "camera": self.camera_on, "autoscan": self.autoscan, "live": self.live,
             "external": self.external, "max_fps": self.max_fps, "max_fps_limit": 30,
             "wifi_mode": self.wifi_mode, "wifi_tx": self.wifi_tx, "eth10": self.eth10,
-            "home_ssid": self.home_ssid, "password": False, "hostname": "otoskop",
+            "home_ssid": self.home_ssid, "password": False, "hostname": "wifi-cam",
         }
 
     def networks(self):
@@ -243,7 +243,7 @@ def make_handler(pages: dict, frame: bytes, state: State):
             if path == "/settings.json":
                 return self.json(state.settings_json())
             if path == "/stream.m3u":
-                host = self.headers.get("Host", "otoskop.local")
+                host = self.headers.get("Host", "wifi-cam.local")
                 return self.send(200, "audio/x-mpegurl", f"#EXTM3U\n#EXTINF:-1,WiFi-Cam\nhttp://{host}/stream\n".encode())
             if path == "/camdiag":
                 return self.send(200, "text/plain", b"[i4season] camera 192.168.1.1, receiving on UDP port 55000 (simulated)\n"

@@ -6,7 +6,7 @@ Chromium against the mock server (mock_server.py).
     pip install playwright pillow && playwright install chromium
     python3 tools/ui-preview/screenshots.py [--image SOURCE]
 
-The camera picture is the current one of the device (http://otoskop.local/snapshot) when it
+The camera picture is the current one of the device (http://wifi-cam.local/snapshot) when it
 is reachable, otherwise the generated test picture. --image takes another JPEG file or URL.
 """
 
@@ -21,7 +21,7 @@ import mock_server
 OUT = mock_server.ROOT / "docs" / "screenshots"
 DESKTOP = {"width": 1100, "height": 860}
 PHONE = {"width": 390, "height": 844}
-DEVICE_SNAPSHOT = "http://otoskop.local/snapshot"
+DEVICE_SNAPSHOT = "http://wifi-cam.local/snapshot"
 # Live view with "Round" switched on, as usual with the otoscope (setting kept in the browser)
 ROUND = "localStorage.setItem('round','true')"
 

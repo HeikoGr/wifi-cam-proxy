@@ -22,7 +22,7 @@ automatically along with the accelerometer.
 
 ```
 [Soulear otoscope] <--Wi-Fi--> [ZB-GW03 ESP32 bridge] <--Ethernet--> [home network]
- 192.168.1.1                    192.168.178.130                      http://otoskop.local/
+ 192.168.1.1                    192.168.178.130                      http://wifi-cam.local/
  UDP 10005/10006                 Arduino/pioarduino
 ```
 
@@ -442,7 +442,7 @@ The pages share `/style.css` and `/app.js`; no external resources are loaded.
 camera:
   - platform: mjpeg
     name: Otoscope
-    mjpeg_url: http://otoskop.local/stream
+    mjpeg_url: http://wifi-cam.local/stream
 ```
 
 ---
@@ -469,7 +469,7 @@ Important constants:
 | `FRAME_HEAP_FLOOR` | 16 KB (CYD: 48 KB) | no frame chunk from the heap below this, whatever the frame size |
 | `STREAM_MAX_FPS` | 5 on the ZB-GW03 (10 still stuttered), else 0 (unlimited) | default of the frame rate limit per viewer (changeable under `/settings`, NVS `stream_fps`); the newest frame is sent, the ones in between are skipped. The 720p MAX-VIEW (~22 fps, 33–84 KB) needs 6–15 Mbit/s, more than the 10 Mbit Ethernet of the ZB-GW03 carries |
 
-### 6.2 Runtime (NVS, namespace `otoskop`)
+### 6.2 Runtime (NVS, namespace `wifi-cam`)
 
 | Key | Content | Set via |
 |---|---|---|
@@ -552,7 +552,7 @@ pio device monitor
 
 ### 7.3 OTA update in the browser
 
-`http://otoskop.local/update` → upload `.pio/build/zb-gw03/firmware.bin`
+`http://wifi-cam.local/update` → upload `.pio/build/zb-gw03/firmware.bin`
 (**not** `firmware.factory.bin`).
 
 ### 7.4 Resolving a backtrace
@@ -587,7 +587,7 @@ For further boards: a new section in `config.h` and a new `[env:...]` in `platfo
 
 If Ethernet has no IP for 30 s, the red LED turns on and the device switches to rescue mode:
 
-1. If a home Wi-Fi is set up, it connects to it. The web UI and OTA then stay reachable under `otoskop.local`. You set the home Wi-Fi under `/wifi-setup`, it is then stored in NVS. As a fallback the device uses `HOME_WIFI_SSID` from `secrets.h`.
+1. If a home Wi-Fi is set up, it connects to it. The web UI and OTA then stay reachable under `wifi-cam.local`. You set the home Wi-Fi under `/wifi-setup`, it is then stored in NVS. As a fallback the device uses `HOME_WIFI_SSID` from `secrets.h`.
 2. If none is set up or it cannot be reached for 30 s, the device opens its own access point `WiFi-Cam-XXXX` (password `SETUP_AP_PASSWORD`, default `wificam-setup`). After connecting, the phone opens the setup page by itself (captive portal), otherwise open `http://192.168.4.1/wifi-setup`. There you scan for networks and store the home Wi-Fi; the device connects right away. While the AP is running, it retries the home Wi-Fi every 5 minutes as long as nobody is connected to the AP.
 3. Once Ethernet has been back stably for 10 s, the device restarts into normal operation.
 

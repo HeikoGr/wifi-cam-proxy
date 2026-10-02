@@ -20,7 +20,7 @@ tools/host-tests/run.sh      # needs g++ (or CXX=clang++); exit code != 0 on a f
 | `frame_test.cpp` | `allocChunk` with a short heap: a 70 KB frame gets the memory of the stored frame if nobody else holds it, and is refused while a viewer is sending the stored one; `latestFrameSeq()` holds no reference. The word-wise IRAM copies (`copyToChunk`, `copyFromChunk`) against `memcpy` for every offset, length and target alignment (`fakeIram` in `stub/esp_memory_utils.h`). Built without sanitizers, the heap budget is read from `mallinfo2`. |
 | `sniffer_test.cpp` | Builds synthetic 802.11 QoS data frames (UDP, TCP ACK, TCP with data, ICMP, traffic that is not the camera's) and checks the recording's lines. |
 
-A new capture for another camera: `curl -s http://otoskop.local/camdiag/raw` once to request
+A new capture for another camera: `curl -s http://wifi-cam.local/camdiag/raw` once to request
 it and a second time to download it; then adapt `jhcmd_test.cpp` (the frame layout is
 camera specific).
 

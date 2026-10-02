@@ -12,7 +12,7 @@ Wi-Fi and provides the image in the home network over Ethernet:
 
 ```
 [Wi-Fi camera] <--Wi-Fi--> [ESP32 + LAN8720] <--Ethernet--> [home network]
- otoscope/microscope          this proxy                     http://otoskop.local/
+ otoscope/microscope          this proxy                     http://wifi-cam.local/
 ```
 
 - **MJPEG stream** for browsers, VLC and Home Assistant (`/stream`), single frame (`/snapshot`)
@@ -123,7 +123,7 @@ pio run -e zb-gw03-http -t upload # afterwards over the LAN
 
 In `firmware/include/secrets.h` you can optionally set an OTA password and the password of the
 setup AP (default `wificam-setup`). You set the home Wi-Fi for rescue mode on the device under
-`/wifi-setup`. Afterwards the device is reachable at **http://otoskop.local/**.
+`/wifi-setup`. Afterwards the device is reachable at **http://wifi-cam.local/**.
 
 | Address | Purpose |
 |---|---|

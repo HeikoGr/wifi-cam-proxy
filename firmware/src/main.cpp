@@ -5,12 +5,12 @@
  *   connects to one of them (src/camera.cpp, protocols in src/cam_*.cpp)
  * - Ethernet (DHCP, src/network.cpp): provides an MJPEG server in the home network
  *   (src/http.cpp)
- *     http://otoskop.local/          browser
- *     http://otoskop.local/stream    VLC / Home Assistant
- *     http://otoskop.local/snapshot  single frame
- *     http://otoskop.local/cameras   choose camera
- *     http://otoskop.local/status    JSON with statistics
- *     http://otoskop.local/update    firmware update in the browser
+ *     http://wifi-cam.local/          browser
+ *     http://wifi-cam.local/stream    VLC / Home Assistant
+ *     http://wifi-cam.local/snapshot  single frame
+ *     http://wifi-cam.local/cameras   choose camera
+ *     http://wifi-cam.local/status    JSON with statistics
+ *     http://wifi-cam.local/update    firmware update in the browser
  *
  * Rescue mode (src/rescue.cpp): if Ethernet has no IP for RESCUE_TIMEOUT_MS, Wi-Fi
  * joins the home Wi-Fi or opens its own access point with a setup page.
@@ -79,7 +79,7 @@ static void setLed(int pin, bool on) {
 }
 
 static void startOta() {
-  ArduinoOTA.setHostname(HOSTNAME);  // also starts mDNS -> otoskop.local
+  ArduinoOTA.setHostname(HOSTNAME);  // also starts mDNS -> wifi-cam.local
   if (strlen(OTA_PASSWORD) > 0) ArduinoOTA.setPassword(OTA_PASSWORD);
   ArduinoOTA.onStart([]() {
     updating = true;

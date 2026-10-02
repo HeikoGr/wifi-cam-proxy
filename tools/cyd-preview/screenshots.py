@@ -8,7 +8,7 @@ image at 1:1 and "fit", menu, camera choice, waiting screen.
 
     python3 tools/cyd-preview/screenshots.py [--image SOURCE] [--rotation DEG] [--battery PCT]
 
-The picture is the current one of the device (http://otoskop.local/snapshot) with that
+The picture is the current one of the device (http://wifi-cam.local/snapshot) with that
 camera's rotation, battery and LED from /cameras.json when it is reachable, otherwise the
 generated test picture of the web UI preview (as an otoscope). Needs g++, Pillow and the
 cyd build's libraries (cd firmware && pio run -e cyd).
@@ -25,7 +25,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 OUT = ROOT / "docs" / "screenshots"
 BUILD = ROOT / "firmware" / ".pio" / "cyd-preview"  # object files are kept between runs
-DEVICE = "http://otoskop.local"
+DEVICE = "http://wifi-cam.local"
 SCALE = 2  # 320x240 is tiny on a web page: double it, pixel for pixel
 
 

@@ -385,7 +385,7 @@ static void handleStatus(Request &r) {
 
 // --- Firmware update --------------------------------------------------------------
 // Firmware as raw data in the body (application/octet-stream), e.g. from the
-// update page or via: curl --data-binary @firmware.bin http://otoskop.local/update
+// update page or via: curl --data-binary @firmware.bin http://wifi-cam.local/update
 static void handleUpdate(Request &r) {
   int fd = r.fd;
   size_t total = headerValue(r.head, "Content-Length").toInt();

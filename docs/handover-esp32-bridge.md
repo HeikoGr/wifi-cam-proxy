@@ -88,7 +88,7 @@ The Python scripts only need the standard library, the camera IP can be passed a
 
 A ZB-GW03 v1.4 (originally a Zigbee gateway, ESP32 without PSRAM + LAN8720) is connected to the otoscope via Wi-Fi and to the home network via LAN. The ESPHome firmware was replaced via OTA.
 
-- **Reachable:** `http://otoskop.local/` (Ethernet IP last `192.168.178.130`), stream under `/stream`
+- **Reachable:** `http://wifi-cam.local/` (Ethernet IP last `192.168.178.130`), stream under `/stream`
 - **Features:** MJPEG stream, snapshot, orientation correction in the browser with calibration page, firmware update in the browser, rescue mode via the home Wi-Fi, crash capture and event log
 - **Performance:** 17 fps without dropouts with a good signal (measured: 516 of 517 frames, longest pause 92 ms)
 
@@ -102,7 +102,7 @@ The most important findings (in detail in the firmware README):
 
 ## Next steps
 
-1. **Home Assistant:** set up an MJPEG camera with `http://otoskop.local/stream`. The image arrives unrotated there.
+1. **Home Assistant:** set up an MJPEG camera with `http://wifi-cam.local/stream`. The image arrives unrotated there.
 2. **Everyday test** with rotating and changing distances. The counters in `/status` (`stalls_loss`, `packets_lost`) show how often the signal drops. With frequent dropouts, place the ZB-GW03 closer to where it is used.
 3. **Clean-up, optional:** remove the test switches (`/debug/...`, `/crashtest`, `/sensor`) or keep them for diagnostics. The experimental switches at the end of `firmware/include/config.h` can be hard-coded. *(Done since then: removed to save RAM.)*
 

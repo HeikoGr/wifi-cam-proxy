@@ -16,7 +16,7 @@ built without SIMD, so it decodes with the same C code as on the ESP32.
 .venv/bin/python tools/cyd-preview/screenshots.py
 ```
 
-The picture is the current one of the device (`http://otoskop.local/snapshot`), with the
+The picture is the current one of the device (`http://wifi-cam.local/snapshot`), with the
 rotation, battery and LED type of the connected camera from `/cameras.json`. Without the
 device it uses the generated test picture of the [web UI preview](../ui-preview/) as an
 otoscope. `--image FILE|URL`, `--rotation DEG` and `--battery PCT` override it.

@@ -20,10 +20,10 @@
       "problemMatcher": []
     },
     {
-      "label": "Flash OTA HTTP (otoskop.local)",
+      "label": "Flash OTA HTTP (wifi-cam.local)",
       "type": "shell",
-      "command": "pio run -e zb-gw03 && curl -f --data-binary @.pio/build/zb-gw03/firmware.bin -H 'Content-Type: application/octet-stream' http://otoskop.local/update",
-      "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" }, "statusbar": { "label": "$(cloud-upload) ZB OTA", "detail": "Flash OTA HTTP (otoskop.local)" } },
+      "command": "pio run -e zb-gw03 && curl -f --data-binary @.pio/build/zb-gw03/firmware.bin -H 'Content-Type: application/octet-stream' http://wifi-cam.local/update",
+      "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" }, "statusbar": { "label": "$(cloud-upload) ZB OTA", "detail": "Flash OTA HTTP (wifi-cam.local)" } },
       "group": "build",
       "presentation": { "reveal": "always", "panel": "shared" },
       "problemMatcher": []
@@ -57,9 +57,9 @@
       "problemMatcher": []
     },
     {
-      "label": "Flash OTA espota (otoskop.local)",
+      "label": "Flash OTA espota (wifi-cam.local)",
       "type": "shell",
-      "command": "pio run -e zb-gw03 && python3 ~/.platformio/packages/framework-arduinoespressif32/tools/espota.py -i otoskop.local -p 3232 -f .pio/build/zb-gw03/firmware.bin",
+      "command": "pio run -e zb-gw03 && python3 ~/.platformio/packages/framework-arduinoespressif32/tools/espota.py -i wifi-cam.local -p 3232 -f .pio/build/zb-gw03/firmware.bin",
       "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" } },
       "group": "build",
       "presentation": { "reveal": "always", "panel": "shared" },

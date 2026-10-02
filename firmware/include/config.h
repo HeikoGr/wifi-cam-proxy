@@ -18,7 +18,7 @@
 #define CAM_CHOICE_RESCAN_MS   20000         // several found, none chosen -> scan this often
 
 // --- Home network (Ethernet, DHCP) ------------------------------------------------
-#define HOSTNAME           "otoskop"         // -> http://otoskop.local
+#define HOSTNAME           "wifi-cam"        // -> http://wifi-cam.local
 #define HTTP_PORT          80
 #define MAX_STREAM_CLIENTS 3                 // ~2.5-3.5 Mbit/s per viewer; 3 is the maximum on 10 Mbit Ethernet
 #ifndef OTA_PASSWORD

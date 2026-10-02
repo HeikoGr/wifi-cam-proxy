@@ -8,7 +8,7 @@ As of 2026-09-30: stable at 17 fps, also with a viewer. Dropouts only occur when
 
 | Address | Purpose |
 |---|---|
-| `http://otoskop.local/` | live image with orientation correction, 2× zoom, battery, LED, snapshot and VLC link |
+| `http://wifi-cam.local/` | live image with orientation correction, 2× zoom, battery, LED, snapshot and VLC link |
 | `/cameras` | cameras found, selection, rescan (JSON: `/cameras.json`) |
 | `/settings` | switches and settings, see below; stream addresses and Home Assistant snippet |
 | `/info` | status page: device, network, video counters, diagnostics with buttons |
@@ -51,7 +51,7 @@ LEDs: **green** means the firmware is running. **Red** means rescue mode.
 
 - [include/config.h](include/config.h): pins, timeouts, defaults
 - `include/secrets.h` (template [secrets.example.h](include/secrets.example.h)), optional: `OTA_PASSWORD`, `SETUP_AP_PASSWORD`, home Wi-Fi as a default
-- **NVS** (namespace `otoskop`) stores runtime settings. They survive restarts and firmware updates:
+- **NVS** (namespace `wifi-cam`) stores runtime settings. They survive restarts and firmware updates:
 
 | Key | Content | Change via |
 |---|---|---|
@@ -69,8 +69,8 @@ LEDs: **green** means the firmware is running. **Red** means rescue mode.
 Back up and restore the calibration:
 
 ```
-curl http://otoskop.local/calibration > calibration.json
-curl -H "Content-Type: application/json" --data-binary @calibration.json http://otoskop.local/calibration
+curl http://wifi-cam.local/calibration > calibration.json
+curl -H "Content-Type: application/json" --data-binary @calibration.json http://wifi-cam.local/calibration
 ```
 
 ## Building
@@ -90,8 +90,8 @@ If `custom_sdkconfig` changes, the next build rebuilds ESP-IDF. That takes about
 
 ## Updating the firmware
 
-- **In the browser:** `http://otoskop.local/update`, then choose `.pio/build/zb-gw03/firmware.bin` (not `firmware.factory.bin`).
-- **On the command line:** `pio run -e zb-gw03-http -t upload`, which corresponds to `curl --data-binary @firmware.bin http://otoskop.local/update`.
+- **In the browser:** `http://wifi-cam.local/update`, then choose `.pio/build/zb-gw03/firmware.bin` (not `firmware.factory.bin`).
+- **On the command line:** `pio run -e zb-gw03-http -t upload`, which corresponds to `curl --data-binary @firmware.bin http://wifi-cam.local/update`.
 - **Via espota:** `pio run -e zb-gw03-ota -t upload`.
 
 If `OTA_PASSWORD` is set, it protects the update and every route that changes the device's configuration or connection: `/update`, `/restart`, `/eth10`, `/wifi/...`, `POST /wifi-setup`, `/cameras/select`, `/cameras/autoscan`, `/camera/enabled`, `/stream/...` (switches), `/sniff/start`, `/sniff/stop`, `/camdiag/send`. The web UI asks for it once on the first protected action and keeps it for the browser session ("logged in" in the header, a click forgets it). Viewing and operating stay open: all GET pages, the LED, `/cameras/scan` and storing the calibration. With curl you pass it as the header `X-OTA-Password`. During an update some video packets are lost briefly because the flash is being written. That is normal.
@@ -100,7 +100,7 @@ If `OTA_PASSWORD` is set, it protects the update and every route that changes th
 
 If Ethernet has no IP for 30 s, the red LED turns on and the device switches to rescue mode:
 
-1. If a home Wi-Fi is set up, it connects to it. The web UI and OTA then stay reachable under `otoskop.local`. You set the home Wi-Fi under `/wifi-setup`, it is then stored in NVS. As a fallback the device uses `HOME_WIFI_SSID` from `secrets.h`.
+1. If a home Wi-Fi is set up, it connects to it. The web UI and OTA then stay reachable under `wifi-cam.local`. You set the home Wi-Fi under `/wifi-setup`, it is then stored in NVS. As a fallback the device uses `HOME_WIFI_SSID` from `secrets.h`.
 2. If none is set up or it cannot be reached for 30 s, the device opens its own access point `WiFi-Cam-XXXX` (password `SETUP_AP_PASSWORD`, default `wificam-setup`). After connecting, the phone opens the setup page by itself (captive portal), otherwise open `http://192.168.4.1/wifi-setup`. There you scan for networks and store the home Wi-Fi; the device connects right away. While the AP is running, it retries the home Wi-Fi every 5 minutes as long as nobody is connected to the AP.
 3. Once Ethernet has been back stably for 10 s, the device restarts into normal operation.
 

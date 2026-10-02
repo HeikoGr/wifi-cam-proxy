@@ -11,7 +11,7 @@
 
 #include <Preferences.h>
 
-#define NVS_NAMESPACE "otoskop"
+#define NVS_NAMESPACE "wifi-cam"
 
 template <class F>
 bool nvsOpen(bool write, F f) {
