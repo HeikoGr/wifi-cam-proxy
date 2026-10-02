@@ -44,12 +44,14 @@ generated test image, not from a real camera.
 | Family | Detection (SSID starts with) | Devices | Image | Orientation | Battery | LED | Status |
 |---|---|---|---|---|---|---|---|
 | **i4season** | `Soulear`, `SUEAR`, `i4season`, `inskam`, `Yanxuan`, `wifi_camera_` | Hopefox Find T (Soulear app), MS5 microscope | ✅ | ✅ (if present) | ✅ | ✅² | Soulear proven on the device |
-| **MaxSee / JoyHonest** (`JHCMD`) | `Maxsee`, `JH-`, `MAX-VIEW`/`MAXVIEW`¹ | Wi-Fi microscopes at `192.168.29.1`, e.g. MAX-VIEW (1280×720) | ✅ | – | – | ✅ dimmable (MAX-VIEW) | MAX-VIEW proven on the ZB-GW03 |
+| **MaxSee / JoyHonest** (`JHCMD`) | `Maxsee`, `JH-`, `MAX-VIEW`/`MAXVIEW`¹ | Wi-Fi microscopes at `192.168.29.1`, e.g. MAX-VIEW (1280×720) | ✅ | – | ✅³ | ✅ dimmable (MAX-VIEW) | MAX-VIEW proven on the ZB-GW03 |
 
 ¹ Although the MAX-VIEW app is by i4season, the microscope (`MAXVIEW-xxxx`) sits at `192.168.29.1`
 and speaks JHCMD. With the protocol "automatic" the address `192.168.29.1` always selects JHCMD,
 whatever the Wi-Fi is called. Under `/cameras` the protocol can also be chosen per network.
 ² Implemented from the protocol documentation, not yet checked on our own device.
+³ MAX-VIEW: in 10 % steps, derived from the vendor app's display (checked from 10 to 80 %); the
+value is too high while charging.
 
 Other families such as EarFairy (RTSP), JEGOAT, Xylla and iTiMO find their Wi-Fi via Bluetooth LE
 or need RTSP. They are not implemented on the ESP32 yet. More on this in

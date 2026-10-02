@@ -151,7 +151,8 @@ Observed on a MAX-VIEW microscope (`MAXVIEW-7762`, 2026-10-01) with a raw captur
 | payload of packet 0 | 16-byte block (`3a 01 44 20 04 00 d5 6e …`), then the JPEG (`FF D8 FF`, comment "GPEncoder") |
 
 - 1280×720 JPEG, 34–82 KB per frame, 1450-byte packets (1442 bytes payload), `FF D9` in the
-  last packet. About 3 fps on the ZB-GW03 (RSSI −75 to −79 dBm).
+  last packet. On the ZB-GW03: 17–22 fps at RSSI −57…−64 dBm, about 3 fps with a weak signal
+  (−80 dBm) or several stream viewers at once.
 - **Packets arrive out of order** (e.g. 3 before 2). The firmware puts every packet at its place
   by packet number (`Frame::insert`); a frame is complete when all packets up to the one with
   `FF D9` are there. Byte 2 is only used to count losses. Checked on the host with the captured
@@ -171,13 +172,36 @@ Observed on a MAX-VIEW microscope (`MAXVIEW-7762`, 2026-10-01) with a raw captur
     turn). Only the button is reported: levels set by the client are not. The same level
     follows as `FDWN 20 00 0e 00 01 00 <level>` to port 20001; the firmware listens on both,
     because UDP packets get lost on a weak Wi-Fi.
-  - `JHCMD 20 00 61 …` (105 bytes), after every handshake: device information, the name
-    (`YPC320`) at offset 24. Byte 7 is always `0x61`, whatever the LED does: not the level.
-- Battery and orientation: not known.
-- **Sniffing the vendor app:** the camera talks to the phone in 802.11n with a 40 MHz channel
-  (HT40). A sniffer in b/g or HT20 mode sees the packets of the phone to the camera, but hardly
-  any in the other direction. `/sniff/start` therefore reads the camera's beacon for the
-  secondary channel and listens in HT40 (`/sniff/start/<channel>/above|below|none` forces it).
+  - `JHCMD 20 00 61 …` (105 bytes), after every handshake: device information. Byte 7 is
+    always `0x61`, whatever the LED does: not the level. Offset 24: name `YPC320`; offset 40:
+    `0xcc` = 204, matches the end of the firmware shown by the app (`E.WH2405-20230724-204`;
+    the bytes `17 07 14` after it look like a date, 2023-07-20); offset 50–52: `09 02 01`;
+    offset 69: `MAXVIEW-` (start of the SSID). Identical in every session so far.
+  - `JHCMD 30 05 fe 01 "v1.01abd2957bb6…"` (519 bytes), seen to the vendor app right after its
+    start-up (`JHCMD 10 00`, `JHCMD 20 00`, `FDWN 20 00 09 00 00 00`); only the first 48 bytes
+    are known, probably versions and a checksum. The bridge never received it, reason unknown.
+- **Battery:** the vendor app asks every 5 s with `FDWN 00 00 01 00 00 00` to UDP 20001, the
+  camera answers to the client's port 20001 with 48 bytes: `FDWN 00 00 01 00 1a 00 00 05 …`,
+  **byte 32 = battery**, the camera's MAC at offset 40 (`60:de:f4:08:77:62`), byte 8 = 26 and
+  byte 11 = 5 (not understood). The firmware sends the same query every 5 s once the video runs.
+  Compared with the app's display (10 % steps, rounded down), raw → shown: 110 → 10 %, 115 → 20,
+  137 → 40, 148 → 50, 152…160 → 60, 162…168 → 70, 177 → 80; the flips to 60 % lie between raw
+  148 and 152, to 70 % between 160 and 162, to 80 % between 170 and 177. All of it fits
+  **percent = raw − 91** (so 100 % at 191), which the firmware uses, shown rounded down to 10 %.
+  Checked on one device (a nearly empty battery charged with a plain A-to-C cable); the flips to
+  90 and 100 % (predicted at 181 and 191) and anything below 10 % are not checked. **While
+  charging, the value is about 35 units higher** (110 → 146 within 30 s of plugging in the
+  cable) and rises about one unit per minute; there is no charging flag in the answer, the app
+  shows the same inflated percentage. Probably it is a voltage (it jumps when the charger is
+  plugged in); it fell from 137 to 115 in 8 minutes while the microscope was running.
+- Orientation: not known.
+- **Sniffing the vendor app:** the camera's beacon says `11b/g/n`, secondary channel `none`,
+  i.e. no 40 MHz channel. Still: the sniffer saw the camera's messages to the phone only when
+  it listened in HT40 (secondary channel below); in one run with 802.11n at 20 MHz it saw
+  almost nothing in that direction. Why is not understood, so `/sniff/start/9/below` is the
+  setting known to work (the plain `/sniff/start` takes the beacon's HT20).
+  The sniffer's ring held only the last ~13 s when the phone's video flooded it; now all UDP
+  from the port that the large video packets come from is only counted.
 
 ---
 
@@ -466,7 +490,7 @@ The camera is idle in rescue mode because Wi-Fi is then needed for reachability.
 
 ---
 
-## 11. LED and battery (battery confirmed on the CYD, i4season LED untested; JHCMD LED see 3.4)
+## 11. LED and battery (i4season: battery confirmed on the CYD, LED untested; JHCMD: see 3.4)
 
 Following [king-cake/otoscope-windows docs/i4season-protocol.md](https://github.com/king-cake/otoscope-windows/blob/master/docs/i4season-protocol.md):
 
@@ -475,7 +499,8 @@ Following [king-cake/otoscope-windows docs/i4season-protocol.md](https://github.
   until the reply arrives. Only then does the start page show the LED as on or off.
   (An earlier version sent 1 byte to port 10006, which was wrong.)
 - **Battery:** from the devinfo reply at handshake (byte `0x78 >> 1`) and from the status push the
-  camera sends to UDP 10007 about once per second. Bit 0 probably means "charging".
+  camera sends to UDP 10007 about once per second. Bit 0 probably means "charging". (JHCMD
+  cameras: see 3.4, byte 32 of the status answer.)
 
 Shown on the start page, in `/cameras.json` (`battery`, `charging`, `led`) and in `/status`.
 
