@@ -184,6 +184,8 @@ def make_handler(pages: dict, frame: bytes, state: State):
                 return self.json(state.status_json())
             if path == "/cameras.json":
                 return self.json(state.cameras_json())
+            if path == "/led":
+                return self.json({"led": state.led, "level": state.led_level})
             if path == "/calibration":
                 return self.send(200, "application/json", state.calibration)
             if path == "/snapshot":

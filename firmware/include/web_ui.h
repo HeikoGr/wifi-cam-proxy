@@ -250,16 +250,24 @@ async function info(){
   }
   $('ledBtn').hidden=!c.led_supported;
   $('ledLvl').hidden=!c.led_dimmable;ledFast=!!c.led_dimmable;
-  // off = slider at 0 (the firmware keeps the last level for "LED on")
-  if(c.led_dimmable&&!lvlBusy)$('ledLvl').value=c.led===0?0:c.led_level;
-  if(c.led>=0&&(c.led===1)!==ledOn){ledOn=c.led===1;applyLed()}
+  showLed(c.led,c.led_level,c.led_dimmable);
+}
+// LED state from /cameras.json or /led: button and (dimmable) slider; off = slider at 0
+// (the firmware keeps the last level for "LED on")
+function showLed(led,level,dimmable){
+  if(dimmable&&!lvlBusy)$('ledLvl').value=led===0?0:level;
+  if(led>=0&&(led===1)!==ledOn){ledOn=led===1;applyLed()}
+}
+async function ledPoll(){
+  try{const l=await (await fetch('/led',{cache:'no-store'})).json();showLed(l.led,l.level,true)}catch(e){}
 }
 applyLed();
 apply();
-// status every 5 s; with a dimmable LED every second, so the light button on the device
-// shows up quickly
+// status every 5 s; with a dimmable LED the small /led every second in between, so the
+// light button on the device shows up quickly
 let ledFast=false;
-(function poll(){info().finally(()=>setTimeout(poll,ledFast?1000:5000))})();
+info();setInterval(info,5000);
+setInterval(()=>{if(ledFast&&!document.hidden)ledPoll()},1000);
 loadCal().then(c=>{cal=c;apply()});
 orientation(a=>{if(sm.add(a,cal))apply()});
 </script></body></html>)HTML";

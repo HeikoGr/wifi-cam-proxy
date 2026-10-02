@@ -309,8 +309,9 @@ Serial console (115200 baud) every 5 s:
 | `/camdiag/send/<port>/<hex>` | POST | experiment: the camera session sends these bytes (max. 64) to the camera's port from its command socket; the camera's messages appear in `/camdiag` |
 | `/led/<0\|1>` | POST | camera LED off/on (on = last brightness) |
 | `/led/level/<0..100>` | POST | LED brightness in % for dimmable cameras (JHCMD), 0 = off |
+| `/led` | GET | `{"led":0\|1,"level":%}`: small state for the live page's one-second polling (no 3 KB buffer like `/cameras.json`) |
 | `/sniff/start[/<channel>[/above\|below\|none]]` | POST | sniffer: leave the camera Wi-Fi, record the UDP/TCP traffic of the vendor app with the camera (without UDP video) on the camera's channel, 11n, HT40 as in its beacon |
-| `/sniff`, `/sniff/stop` | GET / POST | read the recording as text / stop and reconnect |
+| `/sniff`, `/sniff/stop` | GET / POST | read the recording as text / stop and reconnect. The recording (18 KB) is freed on stop, so read it first |
 | `/wifi-setup` | GET/POST | home Wi-Fi for rescue mode (form `ssid`, `pass`) |
 | `/eth10/<0\|1>` | POST | Ethernet 10 Mbit on/off |
 | `/orientation` | GET | server-sent events: orientation sensor ~17×/s |

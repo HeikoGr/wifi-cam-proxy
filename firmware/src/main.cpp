@@ -650,6 +650,12 @@ static void clientTask(void *arg) {
                    sizeof(APP_JS) - 1);
     } else if (get && strcmp(path, "/cameras") == 0) {
       sendResponse(fd, 200, "OK", "text/html; charset=utf-8", CAMERAS_HTML, sizeof(CAMERAS_HTML) - 1);
+    } else if (get && strcmp(path, "/led") == 0) {
+      // tiny status for the live page's one-second polling (the full /cameras.json costs
+      // a 3 KB buffer per request, too much while a 720p stream needs the heap)
+      char json[64];
+      int n = snprintf(json, sizeof(json), "{\"led\":%d,\"level\":%d}", (int)telemetry.led, (int)ledLevel);
+      sendResponse(fd, 200, "OK", "application/json", json, n);
     } else if (get && strcmp(path, "/cameras.json") == 0) {
       handleCamerasJson(fd);
     } else if (post && strcmp(path, "/cameras/scan") == 0) {
