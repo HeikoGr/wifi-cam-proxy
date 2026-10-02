@@ -157,8 +157,11 @@ Observed on a MAX-VIEW microscope (`MAXVIEW-7762`, 2026-10-01) with a raw captur
   by packet number (`Frame::insert`); a frame is complete when all packets up to the one with
   `FF D9` are there. Byte 2 is only used to count losses. Checked on the host with the captured
   packets, in order and shuffled: the result is byte-identical to the original JPEG.
-- The heartbeat is counted by the firmware itself (every 50 frames), because the frame number
-  does not change.
+- **Init and heartbeat like the app** (sniffed): the init sequence (`10 00`, `20 00`, `d0 01`)
+  only when connecting, then `d0 01` every 3 s. After 1 s without video the firmware only sends
+  `d0 01`; the full init again only after 3 s of silence, at most every 3 s. Before, it sent the
+  full init after every second of silence: with 98 KB frames that turned into up to one
+  handshake per second with hardly a frame in between.
 - **LED, client → camera:** `JHCMD 20 02 <0..100>` to UDP 20000, `0` = off. Sniffed with `/sniff`
   while dimming in the MAX-VIEW app (iOS); the app sends every slider value (up to `0x61` seen,
   the camera accepts 100 as well) and the same value as `FDWN 20 00 0e 00 01 00 <v>` to UDP

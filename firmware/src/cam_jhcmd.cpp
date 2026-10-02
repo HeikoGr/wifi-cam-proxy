@@ -26,8 +26,13 @@ const uint16_t CMD_PORT = 20000;  // camera's command port, and our own: the cam
 const uint16_t FDWN_PORT = 20001;  // the same LED message again, as "FDWN" (received only)
 const uint16_t VIDEO_PORT = 10900;
 const size_t HDR_LEN = 8;
-const uint32_t JH_STALL_MS = 1000;      // per czietz: heartbeat again after 1 s of silence
-const uint32_t JH_HEARTBEAT_FRAMES = 50;
+// Like the MAX-VIEW app (sniffed): the init sequence only when connecting, then a
+// heartbeat (START) every 3 s. Sending the full init again after every second of
+// silence restarted the camera before it was sending again: a cascade of up to one
+// handshake per second with hardly a frame in between (measured with 98 KB frames).
+const uint32_t JH_STALL_MS = 1000;      // no video this long: heartbeat right away
+const uint32_t JH_REINIT_MS = 3000;     // still nothing: full init again, at most this often
+const uint32_t JH_HEARTBEAT_MS = 3000;  // heartbeat while the video runs
 
 const uint8_t CMD_INIT1[] = {'J', 'H', 'C', 'M', 'D', 0x10, 0x00};
 const uint8_t CMD_INIT2[] = {'J', 'H', 'C', 'M', 'D', 0x20, 0x00};
@@ -150,22 +155,33 @@ class JhcmdSession : public CamSession {
       diagLog("[jhcmd] %lu ms: sent to port %u: %s", millis(), oport, hex);
     }
 
-    if (millis() - lastData_ > JH_STALL_MS && millis() - lastStart_ >= JH_STALL_MS) {
-      if (running_) {
-        stats.stallsLoss++;
-        crumb("jhcmd: %u ms without data -> handshake", JH_STALL_MS);
-      }
-      running_ = false;
-      if (cameraLinkUp()) {
-        send(CMD_INIT1, sizeof(CMD_INIT1));
-        send(CMD_INIT2, sizeof(CMD_INIT2));
+    uint32_t now = millis();
+    if (cameraLinkUp()) {
+      if (now - lastData_ > JH_STALL_MS) {  // no video
+        if (running_) {
+          stats.stallsLoss++;
+          crumb("jhcmd: %u ms without data -> heartbeat", JH_STALL_MS);
+          running_ = false;
+          building_.reset();
+        }
+        if ((!inited_ || now - lastData_ >= JH_REINIT_MS) && now - lastInit_ >= JH_REINIT_MS) {
+          send(CMD_INIT1, sizeof(CMD_INIT1));
+          send(CMD_INIT2, sizeof(CMD_INIT2));
+          send(CMD_START, sizeof(CMD_START));
+          send(CMD_START, sizeof(CMD_START));
+          inited_ = true;
+          lastInit_ = lastBeat_ = now;
+          stats.handshakes++;
+        } else if (now - lastBeat_ >= JH_STALL_MS) {
+          send(CMD_START, sizeof(CMD_START));
+          lastBeat_ = now;
+          stats.keepalives++;
+        }
+      } else if (now - lastBeat_ >= JH_HEARTBEAT_MS) {
         send(CMD_START, sizeof(CMD_START));
-        send(CMD_START, sizeof(CMD_START));
-        lastStart_ = millis();
-        stats.handshakes++;
+        lastBeat_ = now;
+        stats.keepalives++;
       }
-      lastData_ = millis();
-      building_.reset();
     }
 
     handleLed();
@@ -200,12 +216,6 @@ class JhcmdSession : public CamSession {
       count_ = total_ = 0;
       endIdx_ = -1;
       haveStart_ = false;
-      // The heartbeat keeps the data stream running. Counted by ourselves: the MAX-VIEW
-      // always sends frame number 1.
-      if (++framesSeen_ % JH_HEARTBEAT_FRAMES == 0) {
-        send(CMD_START, sizeof(CMD_START));
-        stats.keepalives++;
-      }
     }
     if (total) total_ = total;  // MAX-VIEW: byte 2 = packets in this frame
 
@@ -424,13 +434,14 @@ class JhcmdSession : public CamSession {
   uint16_t skipFno_ = 0;
   bool running_ = false;
   uint16_t frame_ = 0;
-  uint32_t framesSeen_ = 0;  // for the heartbeat
   uint8_t loggedData_ = 0, loggedReplies_ = 0, oddLogged_ = 0;
   uint32_t noJpegStart_ = 0;
   size_t lastSkip_ = 0;  // offset of the JPEG start in packet 0, logged when it changes
   Frame raw_;  // raw capture in progress
   uint16_t rawFno_ = 0;
-  uint32_t lastData_ = 0, lastStart_ = 0;
+  uint32_t lastData_ = 0;
+  uint32_t lastInit_ = 0, lastBeat_ = 0;  // last full init / last START sent
+  bool inited_ = false;                    // init sequence sent in this session
 };
 
 }  // namespace
