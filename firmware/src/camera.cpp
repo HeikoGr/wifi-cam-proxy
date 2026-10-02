@@ -107,6 +107,7 @@ void diagReset() {
 
 static std::mutex diagRawMutex;
 static Frame diagRaw;
+static uint32_t diagRawAt = 0;  // when the capture was handed over (freed after 30 s)
 static std::atomic<bool> diagRawWant{false};
 
 static uint8_t diagSendBuf[64];
@@ -138,6 +139,7 @@ bool diagRawWanted() { return diagRawWant; }
 void diagRawPut(const Frame &f) {
   std::lock_guard<std::mutex> lock(diagRawMutex);
   diagRaw = f;
+  diagRawAt = millis();
   diagRawWant = false;
 }
 bool diagRawTake(Frame &out) {
@@ -459,6 +461,12 @@ bool cameraPaused() { return paused; }
 
 void cameraLoop() {
   if (savePref.exchange(false)) storePref();
+  {
+    // A raw capture (/camdiag/raw) nobody fetched would keep a whole frame (up to
+    // 80 KB) until the next restart: free it after 30 s
+    std::lock_guard<std::mutex> lock(diagRawMutex);
+    if (diagRaw && millis() - diagRawAt > 30000) diagRaw.reset();
+  }
   if (updating || paused) return;
   if (rescueMode) {  // camera idle; only scans for the setup page (/wifi-setup)
     if (state == CamState::Scanning) {

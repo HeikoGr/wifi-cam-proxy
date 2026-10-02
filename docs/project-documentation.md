@@ -305,7 +305,7 @@ Serial console (115200 baud) every 5 s:
 | `/update` | POST | firmware update (binary, `application/octet-stream`) |
 | `/status` | GET | all counters as JSON |
 | `/camdiag` | GET | first packets of the current camera session as hex (text) |
-| `/camdiag/raw` | GET | raw capture of one whole frame (all UDP packets with headers): first call requests it (202), the next one fetches it |
+| `/camdiag/raw` | GET | raw capture of one whole frame (all UDP packets with headers): first call requests it (202), the next one fetches it; freed after 30 s if nobody fetches it |
 | `/camdiag/send/<port>/<hex>` | POST | experiment: the camera session sends these bytes (max. 64) to the camera's port from its command socket; the camera's messages appear in `/camdiag` |
 | `/led/<0\|1>` | POST | camera LED off/on (on = last brightness) |
 | `/led/level/<0..100>` | POST | LED brightness in % for dimmable cameras (JHCMD), 0 = off |
