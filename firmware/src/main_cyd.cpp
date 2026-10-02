@@ -173,13 +173,17 @@ static bool drawFrame(const Frame &f) {
   int dw = lcd.width(), dh = lcd.height();
   int w, h, opt, dx, dy;  // visible size, decode option, position for decode()
   if (zoomFull && (W > dw || H > dh)) {
-    // 1:1: centre crop. JPEGDEC aligns the crop to whole blocks (8/16 pixels);
-    // decode() gets the screen position of that block edge, so the image centre
-    // lands exactly in the display centre.
+    // 1:1: centre crop. JPEGDEC moves the crop start down to a block edge (8/16
+    // pixels) but keeps the width, so the crop would end that many pixels too early
+    // (black bar on one side). Hence a second call that starts at the block edge and
+    // reaches the wanted right/bottom end. decode() gets the screen position of that
+    // block edge, so the image centre lands exactly in the display centre.
     w = min(W, dw);
     h = min(H, dh);
-    jpeg->setCropArea((W - w) / 2, (H - h) / 2, w, h);
-    int ax, ay, aw, ah;
+    int cx = (W - w) / 2, cy = (H - h) / 2, ax, ay, aw, ah;
+    jpeg->setCropArea(cx, cy, w, h);
+    jpeg->getCropArea(&ax, &ay, &aw, &ah);
+    jpeg->setCropArea(ax, ay, min(W - ax, cx + w - ax), min(H - ay, cy + h - ay));
     jpeg->getCropArea(&ax, &ay, &aw, &ah);
     dx = dw / 2 - W / 2 + ax;
     dy = dh / 2 - H / 2 + ay;
