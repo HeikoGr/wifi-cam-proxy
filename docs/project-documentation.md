@@ -182,6 +182,43 @@ ANAR bits 5–8). Enough for 3 viewers. Switchable at runtime: `/update` or `POS
 **Store-and-forward:** enabled via `EMAC_DMA.dmaoperation_mode.tx_str_fwd = 1`.
 Prevents mangled packets during Wi-Fi/DMA memory bus conflicts.
 
+### 4.6 CYD: display path and measurements
+
+`displayTask` decodes the newest frame with JPEGDEC straight from the packet list and writes
+it stripe by stripe to the display (LovyanGFX, no frame buffer: 320×240×2 = 150 KB does not
+fit without PSRAM). If it is slower than the camera, frames drop out; the newest one is always
+shown.
+
+Measured on 2026-10-01 with the Soulear (480×480 JPEG, ~17 fps) on an ESP32-2432S028R (ILI9341
+variant), Wi-Fi RSSI −26 to −49 dBm:
+
+| Zoom | Visible | Draw time per frame | Shown | Lost packets |
+|---|---|---|---|---|
+| 1:1 (centre crop) | 320×220 | ~90 ms | ~11–12 fps | 0 |
+| fit (1/2 scale) | 240×240 | 116–130 ms (max ~158) | 6.6–8.4 fps | 0 |
+
+- **The decoder is the bottleneck, not Wi-Fi.** No packet loss, no damaged frames. "fit" is
+  slower than 1:1 although it shows fewer pixels: it has to decode the whole 480×480 image,
+  while 1:1 skips the blocks outside the crop.
+- **SPI 80 MHz** (`CYD_SPI_WRITE_HZ`): autodetect sets 40 MHz for the ILI9341 variant (80 MHz
+  for the ST7789). 80 MHz runs cleanly on the tested device. The ESP32 only divides 80 MHz
+  (80, 40, 26.7, … MHz); if the image is garbled, go back to 40 MHz.
+- **Tearing:** the display has no usable TE pin on the CYD, so writing cannot be synchronised
+  with the panel refresh. Lower fps do not prevent it, they only make it rarer. With 80 MHz the
+  visible artifacts were gone.
+- **Watchdog:** because a new frame is almost always ready, the display task must yield after
+  every frame (`vTaskDelay(1)`), otherwise IDLE0 trips the task watchdog after 5 s.
+- **1:1 crop:** JPEGDEC moves the crop start down to a block edge (16 px) but keeps the width.
+  The firmware therefore extends the crop, otherwise there was an 8 px black bar on one side.
+- **Overlay** (battery, fps): sits in the side border or in a 10 px strip that the image leaves
+  out at 1:1, and is only redrawn when its text changes (no flicker).
+- **No orientation correction:** removed. Arbitrary angles need a frame buffer, and in 90°
+  steps the image kept jumping in the hand. Only the fixed −90° of the otoscope camera remains.
+
+Serial console (115200 baud) every 5 s:
+`[stats] received 17.2 fps, shown 8.0 fps | lost pkts 0, damaged 0, incomplete 0, RSSI -46 | draw avg 121 ms max 140 ms | battery 55% | heap 148412 (min 107600)`.
+`damaged` > 0 means Wi-Fi artifacts; a `[geo]` line shows the image geometry whenever it changes.
+
 ---
 
 ## 5. HTTP API
@@ -372,7 +409,7 @@ The camera is idle in rescue mode because Wi-Fi is then needed for reachability.
 
 ---
 
-## 11. LED and battery (new, untested on the own device)
+## 11. LED and battery (battery confirmed on the CYD, LED untested)
 
 Following [king-cake/otoscope-windows docs/i4season-protocol.md](https://github.com/king-cake/otoscope-windows/blob/master/docs/i4season-protocol.md):
 
@@ -391,7 +428,7 @@ Shown on the start page, in `/cameras.json` (`battery`, `charging`, `led`) and i
 
 | Idea | Source/hint |
 |---|---|
-| Test LED and battery on the device | see section 11 |
+| Test the LED on the device | see section 11 (battery confirmed) |
 | Lower the resolution for 720p microscopes (`0x0E` SetCameraConfig) | saves RAM; caution, a mode change can block the encoder (MS5) |
 | Query the resolution (`GetCameraConfig`, 0x0D) | caution: a mode change can block the encoder (observed on the MS5) |
 | Put the WT32-ETH01 into operation (100 Mbit, cheaper) | multi-platform already implemented |
