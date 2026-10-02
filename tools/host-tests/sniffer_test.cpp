@@ -27,6 +27,16 @@ int main() {
   frame(6, cam, phone, {0x1f, 0x90, 0xc0, 0x01, 0, 0, 0, 1, 0, 0, 0, 2, 0x50, 0x18, 0x10, 0, 0, 0, 0, 0, 'h', 'i'});
   frame(1, phone, cam, {8, 0, 0, 0, 0, 1, 0, 1, 'p', 'i', 'n', 'g'});   // ICMP echo
   frame(17, phone, other, {0, 53, 0, 53, 0, 9, 0, 0, 'x'});              // not the camera
+  // video to the phone: a large packet, then small ones from the same port are only counted
+  {
+    std::vector<uint8_t> big = {0x2a, 0x62, 0x2a, 0x94, 0x02, 0x00, 0, 0};   // 10850 -> 10900
+    big.resize(8 + 700, 0xAB);
+    big[4] = (uint8_t)((8 + 700) >> 8); big[5] = (uint8_t)(8 + 700);
+    frame(17, cam, phone, big);
+    std::vector<uint8_t> small = {0x2a, 0x62, 0x2a, 0x94, 0, 8 + 40, 0, 0};
+    small.resize(8 + 40, 0xCD);
+    frame(17, cam, phone, small);
+  }
   // the 105-byte info reply of the MAX-VIEW to the phone: has to be recorded completely
   {
     std::vector<uint8_t> reply = {0x4e, 0x20, 0x4e, 0x20, 0, 113, 0, 0};  // UDP 20000 -> 20000, length 8 + 105
@@ -51,6 +61,8 @@ int main() {
       {"TCP AP   192.168.29.1:8080 -> 192.168.29.3:49153    2  68 69", true},  // 2 payload bytes
       {"IP proto 1 192.168.29.3", true},
       {"8.8.8.8", false},                                                   // not the camera
+      {"10850 ->", false},                                                  // video (large and small) is not listed
+      {"Video (not listed): 2 packets", true},
       {"192.168.29.1:20000 -> 192.168.29.3:20000  105  4a 48 43 4d 44 20 00 61", true},
       {"4d 41 58 56 49 45 57 2d", true},  // offset 69: still in the recording
       {"00 a5  'JHCMD", true},             // last byte (offset 104)

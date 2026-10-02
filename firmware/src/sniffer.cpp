@@ -26,6 +26,7 @@ Entry *ring = nullptr;
 int head = 0, count = 0;  // next slot, entries in use
 uint32_t camAddr = 0, startMs = 0, videoPackets = 0, videoBytes = 0;
 uint16_t videoPort = 0;
+uint16_t videoSport = 0;  // source port of the large packets from the camera: all of its packets are video
 int sniffChannel = 0;
 char apInfo[64] = "";
 int sniffSecond = 0;  // what the camera's beacon says about 11n/HT40
@@ -87,8 +88,11 @@ void onFrame(void *buf, wifi_promiscuous_pkt_type_t type) {
   int avail = len - (hdr + 8 + ihl + l4len);
   if (ulen < 0 || avail < 0) return;
   u += l4len - 8;  // so that u + 8 points at the payload, as for UDP
-  if (proto == 17 && src == camAddr && ulen >= VIDEO_MIN) {  // video: only count it
+  // video: only count it. The stream to the phone also has packets below VIDEO_MIN, which
+  // would flood the ring: so everything from the port the large ones come from counts too.
+  if (proto == 17 && src == camAddr && (ulen >= VIDEO_MIN || (videoSport && sport == videoSport))) {
     portENTER_CRITICAL(&mux);
+    if (ulen >= VIDEO_MIN) videoSport = sport;
     videoPackets++;
     videoBytes += ulen;
     videoPort = dport;
@@ -165,6 +169,7 @@ bool sniffStart(int channel, uint32_t camIp, char second) {
   head = count = 0;
   videoPackets = videoBytes = 0;
   videoPort = 0;
+  videoSport = 0;
   portEXIT_CRITICAL(&mux);
   camAddr = camIp ? camIp : (uint32_t)IPAddress(192, 168, 29, 1);
   sniffChannel = channel;
