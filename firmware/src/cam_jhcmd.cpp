@@ -4,13 +4,16 @@
  *
  * Source: czietz/wifimicroscope (wifi_microscope_dump.py, BSD-2-Clause) and
  * https://www.chzsoft.de/site/hardware/reverse-engineering-a-wifi-microscope/
- * Not yet tested on a real device.
+ * Tested with a MAX-VIEW microscope (MAXVIEW-xxxx).
  *
  * Video packet: 8-byte header (bytes 0-1 frame number LE, byte 3 packet number within
- * the frame, 0 = first), then JPEG data. Orientation, battery and LED are not known.
+ * the frame, 0 = first), then JPEG data. MAX-VIEW (observed, 1280x720): bytes 0-1
+ * always 01 00, byte 2 = number of packets of this frame, bytes 4-7 = 02 14 00 00, and a
+ * 16-byte block before the JPEG in packet 0. Orientation, battery and LED are not known.
  */
 
 #include <Arduino.h>
+#include <WiFi.h>
 #include <lwip/sockets.h>
 
 #include "camera.h"
@@ -45,7 +48,8 @@ class JhcmdSession : public CamSession {
     camAddr_.sin_addr.s_addr = camIp;
     camAddr_.sin_port = htons(CMD_PORT);
     telemetry.ledSupported = false;
-    Serial.printf("[jhcmd] receiving on UDP port %u\r\n", VIDEO_PORT);
+    diagReset();
+    diagLog("[jhcmd] camera %s, receiving on UDP port %u", IPAddress(camIp).toString().c_str(), VIDEO_PORT);
   }
 
   ~JhcmdSession() override {
@@ -55,7 +59,16 @@ class JhcmdSession : public CamSession {
   }
 
   void poll(uint8_t *pkt, size_t cap) override {
-    int n = recvfrom(vid_, pkt, cap, 0, nullptr, nullptr);
+    sockaddr_in from = {};
+    socklen_t flen = sizeof(from);
+    int n = recvfrom(vid_, pkt, cap, 0, (sockaddr *)&from, &flen);
+    if (n > 0) logPacket("data", pkt, n, from);
+    if (n > (int)HDR_LEN) captureRaw(pkt, n);
+    // Replies on the command socket (not used by the protocol, only logged)
+    uint8_t reply[64];
+    flen = sizeof(from);
+    int r = recvfrom(cmd_, reply, sizeof(reply), MSG_DONTWAIT, (sockaddr *)&from, &flen);
+    if (r > 0) logPacket("reply", reply, r, from);
 
     if (millis() - lastData_ > JH_STALL_MS && millis() - lastStart_ >= JH_STALL_MS) {
       if (running_) {
@@ -72,7 +85,6 @@ class JhcmdSession : public CamSession {
         stats.handshakes++;
       }
       lastData_ = millis();
-      inFrame_ = false;
       building_.reset();
     }
 
@@ -81,73 +93,139 @@ class JhcmdSession : public CamSession {
     running_ = true;
 
     uint16_t fno = pkt[0] | (pkt[1] << 8);
-    uint8_t idx = pkt[3];
+    uint8_t idx = pkt[3], total = pkt[2];
     const uint8_t *payload = pkt + HDR_LEN;
     size_t plen = n - HDR_LEN;
 
-    if (idx == 0) {  // new frame starts
-      if (inFrame_) {  // previous frame ended without FF D9
-        stats.framesDropped++;
-        stats.dropIncomplete++;
-      }
-      inFrame_ = plen >= 2 && payload[0] == 0xFF && payload[1] == 0xD8;
-      if (!inFrame_) return;
+    // Packets can arrive out of order (observed on the MAX-VIEW: 3 before 2). So each
+    // one is put at its place by packet number. A packet that belongs to the next frame
+    // (other frame number, or a packet number we already have) ends the current one.
+    if (building_ && (fno != frame_ || have(idx))) finishFrame(false);
+    if (!building_) {
       building_ = Frame::create();
       if (!building_) {
-        inFrame_ = false;
         stats.framesDropped++;
         stats.dropNoMem++;
         return;
       }
       frame_ = fno;
-      nextIdx_ = 0;
-      broken_ = false;
-      // the heartbeat keeps the data stream running
-      if (fno % JH_HEARTBEAT_FRAMES == 0) {
+      count_ = total_ = 0;
+      endIdx_ = -1;
+      haveStart_ = false;
+      // The heartbeat keeps the data stream running. Counted by ourselves: the MAX-VIEW
+      // always sends frame number 1.
+      if (++framesSeen_ % JH_HEARTBEAT_FRAMES == 0) {
         send(CMD_START, sizeof(CMD_START));
         stats.keepalives++;
       }
     }
-    if (!inFrame_ || fno != frame_) return;
+    if (total) total_ = total;  // MAX-VIEW: byte 2 = packets in this frame
 
-    if (idx != nextIdx_) {  // packet(s) of the frame lost
-      stats.packetsLost += (uint8_t)(idx - nextIdx_);
-      broken_ = true;
+    if (idx == 0) {
+      // The JPEG does not always start right after the header: the MAX-VIEW puts a
+      // 16-byte block of its own in front. So search for FF D8 FF and skip the rest.
+      size_t skip = 0;
+      while (skip + 3 <= plen && !(payload[skip] == 0xFF && payload[skip + 1] == 0xD8 && payload[skip + 2] == 0xFF))
+        skip++;
+      if (skip + 3 > plen) {
+        if (!noJpegStart_++) diagLog("[jhcmd] no JPEG start (FF D8 FF) in packet 0 of frame %u", fno);
+        return;  // the frame stays incomplete and is dropped
+      }
+      if (skip != lastSkip_) {
+        lastSkip_ = skip;
+        diagLog("[jhcmd] JPEG starts at offset %u of packet 0", (unsigned)skip);
+      }
+      payload += skip;
+      plen -= skip;
+      haveStart_ = true;
     }
-    nextIdx_ = idx + 1;
+
+    // JPEG end (FF D9, possibly followed by padding zeros): cut the padding right away
+    size_t end = plen;
+    while (end > 0 && payload[end - 1] == 0x00) end--;
+    if (end >= 2 && payload[end - 2] == 0xFF && payload[end - 1] == 0xD9) {
+      endIdx_ = idx;
+      plen = end;
+    }
 
     if (building_.size() + plen > MAX_FRAME_BYTES) {
-      inFrame_ = false;
       building_.reset();
       stats.framesDropped++;
       stats.dropTooBig++;
       return;
     }
-    if (!building_.append(payload, plen)) {
-      inFrame_ = false;
+    int pos = 0;  // number of stored packets with a smaller number
+    while (pos < count_ && idxs_[pos] < idx) pos++;
+    if (!building_.insert(pos, payload, plen)) {
       building_.reset();
       stats.framesDropped++;
       stats.dropNoMem++;
       return;
     }
+    memmove(&idxs_[pos + 1], &idxs_[pos], count_ - pos);
+    idxs_[pos] = idx;
+    count_++;
 
-    size_t end = plen;
-    while (end > 0 && payload[end - 1] == 0x00) end--;
-    if (end >= 2 && payload[end - 2] == 0xFF && payload[end - 1] == 0xD9) {
-      if (broken_ && !SHOW_DAMAGED_FRAMES) {
-        stats.framesDropped++;
-        stats.dropIncomplete++;
-      } else {
-        if (broken_) stats.framesDamaged++;
-        building_.trimLast(plen - end);
-        publishFrame(building_);
-      }
-      building_.reset();
-      inFrame_ = false;
-    }
+    // Complete: all packets up to the one with FF D9 are there (byte 2 is only used to
+    // estimate losses: whether other MaxSee devices fill it the same way is unknown)
+    if (haveStart_ && endIdx_ >= 0 && count_ == endIdx_ + 1) finishFrame(true);
   }
 
  private:
+  bool have(uint8_t idx) const {
+    for (int i = 0; i < count_; i++)
+      if (idxs_[i] == idx) return true;
+    return false;
+  }
+
+  // Publish the frame being built if it is a whole JPEG. complete = all packets there;
+  // otherwise packets are missing: count them, show the frame only with
+  // SHOW_DAMAGED_FRAMES (and only with JPEG start and end).
+  void finishFrame(bool complete) {
+    bool jpeg = count_ > 0 && haveStart_ && endIdx_ >= 0 && idxs_[count_ - 1] == endIdx_;
+    if (!complete) {
+      int expected = total_ ? total_ : endIdx_ >= 0 ? endIdx_ + 1 : count_ ? idxs_[count_ - 1] + 1 : 0;
+      if (expected > count_) stats.packetsLost += expected - count_;
+    }
+    if (jpeg && (complete || SHOW_DAMAGED_FRAMES)) {
+      if (!complete) stats.framesDamaged++;
+      publishFrame(building_);
+    } else {
+      stats.framesDropped++;
+      stats.dropIncomplete++;
+    }
+    building_.reset();
+  }
+
+  // Raw capture for /camdiag/raw: all packets of one frame, from packet 0 until the
+  // next frame number appears
+  void captureRaw(const uint8_t *pkt, int n) {
+    uint16_t fno = pkt[0] | (pkt[1] << 8);
+    if (raw_) {
+      // until the next packet 0 (the MAX-VIEW keeps the frame number constant)
+      if (pkt[3] != 0 && fno == rawFno_ && raw_.append(pkt, n)) return;
+      diagRawPut(raw_);  // next frame (or no memory): hand over what we have
+      diagLog("[jhcmd] raw capture: frame %u, %u bytes", rawFno_, (unsigned)raw_.size());
+      raw_.reset();
+    } else if (pkt[3] == 0 && diagRawWanted()) {
+      raw_ = Frame::create();
+      rawFno_ = fno;
+      if (raw_ && !raw_.append(pkt, n)) raw_.reset();
+    }
+  }
+
+  // Diagnostics: the first packets of each kind as hex (length, sender port, 24 bytes)
+  void logPacket(const char *kind, const uint8_t *pkt, int n, const sockaddr_in &from) {
+    uint8_t &count = kind[0] == 'd' ? loggedData_ : loggedReplies_;
+    if (count >= 4) return;
+    count++;
+    char hex[24 * 3 + 1];
+    int k = min(n, 24);
+    for (int i = 0; i < k; i++) snprintf(hex + i * 3, 4, "%02x ", pkt[i]);
+    hex[k * 3] = 0;
+    diagLog("[jhcmd] %lu ms: %s %d bytes from port %u: %s", millis(), kind, n, ntohs(from.sin_port), hex);
+  }
+
   void send(const uint8_t *data, size_t len) {
     sendto(cmd_, data, len, 0, (sockaddr *)&camAddr_, sizeof(camAddr_));
   }
@@ -155,9 +233,19 @@ class JhcmdSession : public CamSession {
   int cmd_ = -1, vid_ = -1;
   sockaddr_in camAddr_ = {};
   Frame building_;
-  bool inFrame_ = false, broken_ = false, running_ = false;
+  uint8_t idxs_[MAX_CHUNKS];  // packet numbers of the chunks in building_, sorted
+  int count_ = 0;             // packets in building_
+  int total_ = 0;             // packets announced for this frame (0 = unknown)
+  int endIdx_ = -1;           // packet with FF D9
+  bool haveStart_ = false;    // packet 0 with FF D8 is there
+  bool running_ = false;
   uint16_t frame_ = 0;
-  uint8_t nextIdx_ = 0;
+  uint32_t framesSeen_ = 0;  // for the heartbeat
+  uint8_t loggedData_ = 0, loggedReplies_ = 0;
+  uint32_t noJpegStart_ = 0;
+  size_t lastSkip_ = 0;  // offset of the JPEG start in packet 0, logged when it changes
+  Frame raw_;  // raw capture in progress
+  uint16_t rawFno_ = 0;
   uint32_t lastData_ = 0, lastStart_ = 0;
 };
 

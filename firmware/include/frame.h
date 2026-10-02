@@ -72,6 +72,21 @@ class Frame {
     p_->len += len;
     return true;
   }
+  // Receiver only: insert as chunk number pos (0..chunks()), for packets that arrive
+  // out of order
+  bool insert(int pos, const uint8_t *data, size_t len) {
+    if (p_->n >= MAX_CHUNKS || pos < 0 || pos > p_->n) return false;
+    uint8_t *c = allocChunk(len, p_->len);
+    if (!c) return false;
+    copyToChunk(c, data, len);
+    memmove(&p_->chunk[pos + 1], &p_->chunk[pos], (p_->n - pos) * sizeof(p_->chunk[0]));
+    memmove(&p_->clen[pos + 1], &p_->clen[pos], (p_->n - pos) * sizeof(p_->clen[0]));
+    p_->chunk[pos] = c;
+    p_->clen[pos] = len;
+    p_->n++;
+    p_->len += len;
+    return true;
+  }
   void trimLast(size_t bytes) {  // cut off padding zeros after FF D9
     p_->clen[p_->n - 1] -= bytes;
     p_->len -= bytes;
