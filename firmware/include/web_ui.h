@@ -67,6 +67,7 @@ h3{font-size:.92rem;margin:16px 0 6px;color:var(--muted);font-weight:600}
 button.sel{border-color:var(--accent);color:var(--accent)}
 .opts{display:grid;grid-template-columns:max-content 1fr;gap:6px 12px;align-items:center;margin:6px 0}
 .opts button{margin:0}
+footer{max-width:640px;margin:0 auto;padding:4px 16px 24px;text-align:center}
 )CSS";
 
 #define PAGE_HEAD(title) "<!doctype html><html lang='en'><head><title>" title "</title>" PAGE_STYLE
@@ -232,6 +233,11 @@ function mjpeg(img,url,onState,onFrame){
   return ()=>{stopped=true;clearTimeout(timer);clearInterval(wd);if(ctl)ctl.abort()};
 }
 async function settings(){try{return await (await fetch('/settings.json',{cache:'no-store'})).json()}catch(e){return null}}
+// Footer on every page: repository and commit of the running firmware
+fetch('/status',{cache:'no-store'}).then(r=>r.json()).then(s=>{
+  const c=String(s.commit||''),repo='https://github.com/HeikoGr/wifi-cam-proxy';
+  document.body.insertAdjacentHTML('beforeend','<footer class="small muted"><a href="'+repo+'">GitHub</a> · '+
+    (/^[0-9a-f]{7,}$/.test(c)?'<a href="'+repo+'/commit/'+c+'">'+c+'</a>':esc(c||'–'))+'</footer>')}).catch(()=>{});
 )JS";
 
 static const char INDEX_HTML[] = PAGE_HEAD("WiFi-Cam")
