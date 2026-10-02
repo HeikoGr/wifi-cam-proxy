@@ -232,6 +232,7 @@ static const char INDEX_HTML[] = PAGE_HEAD("WiFi-Cam")
 #view{display:block;width:max-content;max-width:100%;margin:0 auto;overflow:hidden;line-height:0;
  cursor:zoom-in;border-radius:var(--r);background:#000;box-shadow:0 10px 30px rgba(0,0,0,.45)}
 #view.z{cursor:grab;touch-action:none}
+#view.round{background:none;box-shadow:none}
 #wrap{display:inline-block;transition:transform .12s linear}
 #img{max-width:100%;max-height:72vh;min-width:240px;min-height:240px;background:#000}
 .camline{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;margin:0 0 12px}
@@ -263,7 +264,7 @@ static const char INDEX_HTML[] = PAGE_HEAD("WiFi-Cam")
 let cal=Object.assign({},DEFAULT_CAL), hasOri=true, camRot=0;  // camRot: /cameras.json rotation
 const view={z:1,px:0,py:0}, sm=new Smoother(), rot=rotator($('wrap'),view);
 // zoom 2x: pan the crop by dragging, at most up to the image edge
-function setZoom(z){view.z=z;view.px=view.py=0;$('zoom').innerHTML=z>1?'1&times;':'2&times;';$('view').className=z>1?'z':'';rot()}
+function setZoom(z){view.z=z;view.px=view.py=0;$('zoom').innerHTML=z>1?'1&times;':'2&times;';$('view').classList.toggle('z',z>1);rot()}
 function clampPan(){
   const mx=(view.z-1)*$('img').clientWidth/2, my=(view.z-1)*$('img').clientHeight/2;
   view.px=Math.max(-mx,Math.min(mx,view.px));view.py=Math.max(-my,Math.min(my,view.py));
@@ -276,7 +277,7 @@ $('view').onpointermove=e=>{if(drag){view.px=e.clientX-drag.x;view.py=e.clientY-
 $('view').onpointerup=$('view').onpointercancel=()=>{drag=null;$('wrap').style.transition=''};
 // round crop: display only (the image arrives square), off by default
 $('round').checked=store.get('round',false);
-function applyRound(){$('img').className=hasOri&&$('round').checked?'round':''}
+function applyRound(){const r=hasOri&&$('round').checked;$('img').className=r?'round':'';$('view').classList.toggle('round',r)}
 $('round').onchange=()=>{store.set('round',$('round').checked);applyRound()};
 applyRound();
 $('on').checked=store.get('on',false);
