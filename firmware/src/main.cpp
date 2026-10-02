@@ -236,7 +236,14 @@ static void handleStream(int fd) {
     while (!updating) {
       uint32_t s = getFrame(frame);
       if (s == seq || !frame) {
+        // replaced by a newer viewer (large frames, see below): end while waiting as well,
+        // a stale connection would keep its task and send buffer
+        bool replaced = frame && frame.size() > FRAME_RESERVE_FROM && me != streamGen;
         frame.reset();
+        if (replaced) {
+          crumb("stream ended: large frames, a newer viewer took over");
+          break;
+        }
         // While waiting, check now and then whether the client is still there
         if (millis() - lastCheck > 1000) {
           if (clientClosed(fd)) break;

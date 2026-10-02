@@ -247,6 +247,7 @@ async function info(){
   if(c.state==='connected'){
     const ori=c.orientation||(c.proto==='i4season'&&!c.width);
     if(ori!==hasOri){hasOri=ori;applyRound();$('ori').hidden=!ori;$('calLink').hidden=!ori;apply()}
+    if(ori)startOri();
   }
   $('ledBtn').hidden=!c.led_supported;
   $('ledLvl').hidden=!c.led_dimmable;ledFast=!!c.led_dimmable;
@@ -269,7 +270,11 @@ let ledFast=false;
 info();setInterval(info,5000);
 setInterval(()=>{if(ledFast&&!document.hidden)ledPoll()},1000);
 loadCal().then(c=>{cal=c;apply()});
-orientation(a=>{if(sm.add(a,cal))apply()});
+// The orientation stream (a client task with a 6 KB stack on the device) only once the
+// camera turns out to have a sensor: the microscopes have none, and with 720p frames the
+// heap is short.
+let oriStarted=false;
+function startOri(){if(!oriStarted){oriStarted=true;orientation(a=>{if(sm.add(a,cal))apply()})}}
 </script></body></html>)HTML";
 
 static const char CALIBRATE_HTML[] = PAGE_HEAD("Calibration")
