@@ -17,10 +17,6 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        env: [zb-gw03, wt32-eth01, cyd]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,7 +29,6 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/.platformio
-          # Toolchain/framework are identical for all boards, so one shared entry; the first job to finish saves it.
           key: pio-${{ hashFiles('firmware/platformio.ini', 'firmware/sdkconfig.*') }}
           restore-keys: pio-
 
@@ -42,19 +37,22 @@ jobs:
       - name: Create secrets.h from template
         run: cp firmware/include/secrets.example.h firmware/include/secrets.h
 
+      # One job, boards in sequence: the ESP-IDF libs are rebuilt once and reused by the other boards.
       - name: Build
         working-directory: firmware
-        run: pio run -e ${{ matrix.env }}
+        run: pio run -e zb-gw03 -e wt32-eth01 -e cyd
 
       - name: Collect binaries
         run: |
           mkdir out
-          cp firmware/.pio/build/${{ matrix.env }}/firmware.bin out/${{ matrix.env }}-ota.bin
-          cp firmware/.pio/build/${{ matrix.env }}/firmware.factory.bin out/${{ matrix.env }}-factory.bin
+          for env in zb-gw03 wt32-eth01 cyd; do
+            cp firmware/.pio/build/$env/firmware.bin out/$env-ota.bin
+            cp firmware/.pio/build/$env/firmware.factory.bin out/$env-factory.bin
+          done
 
       - uses: actions/upload-artifact@v4
         with:
-          name: firmware-${{ matrix.env }}
+          name: firmware-all
           path: out/*.bin
           retention-days: 14
 
