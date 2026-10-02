@@ -506,7 +506,10 @@ void setup() {
   }
   Serial.begin(115200);
   crashlogInit();
-  Serial.println("\r\n[boot] WiFi-Cam-Viewer (CYD)");
+#ifndef GIT_REV
+#define GIT_REV "unknown"  // set by git_rev.py
+#endif
+  Serial.println("\r\n[boot] WiFi-Cam-Viewer (CYD) " GIT_REV);
 
   loadSettings();
   lcd.init();

@@ -559,6 +559,7 @@ async function status(){
       ['Heap',s.free_heap+' bytes free (min '+s.min_heap+')'],
       ['Uptime',Math.floor(s.uptime_s/3600)+' h '+Math.floor(s.uptime_s%3600/60)+' min'],
       ['Version',esc(s.version)],
+      ['Commit',esc(s.commit||'–')],
       ['Reset',esc(s.reset_reason)+' (boot #'+s.boot_count+')'],
       s.last_crash&&['Crash',esc(s.last_crash),'bad']]);
     kv($('vid'),[

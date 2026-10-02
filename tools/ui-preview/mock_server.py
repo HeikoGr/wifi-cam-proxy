@@ -137,7 +137,7 @@ class State:
     def status_json(self):
         rescue = self.scenario == "rescue"
         return {
-            "version": "Oct  1 2026 12:00:00", "reset_reason": "software", "boot_count": 1,
+            "version": "Oct  1 2026 12:00:00", "commit": "a8d098b", "reset_reason": "software", "boot_count": 1,
             "mode": "rescue" if rescue else "normal", "fps": 17.2 if self.connected else 0.0,
             "frames": 48211, "dropped": 37, "drop_nomem": 0, "drop_toobig": 0, "drop_incomplete": 37,
             "packets_lost": 112, "damaged": 64, "max_frame": 41730, "handshakes": 3, "keepalives": 0,
