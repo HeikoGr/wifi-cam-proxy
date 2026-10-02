@@ -35,29 +35,37 @@ else
 fi
 PIO="$VENV/bin/pio"
 
-# --- 3. secrets.h from the template ----------------------------------------------
+# --- 3. CMake for VS Code CMake Tools -------------------------------------------
+if [[ ! -x "$VENV/bin/cmake" ]]; then
+  info "Installing CMake for VS Code"
+  "$VENV/bin/pip" install --quiet cmake
+else
+  info "CMake already installed: $("$VENV/bin/cmake" --version | head -n 1)"
+fi
+
+# --- 4. secrets.h from the template ----------------------------------------------
 if [[ ! -f "$FW/include/secrets.h" ]]; then
   cp "$FW/include/secrets.example.h" "$FW/include/secrets.h"
   warn "created firmware/include/secrets.h from the template - optionally set OTA and setup-AP passwords there"
 fi
 
-# --- 4. Pre-download platform (pioarduino) and toolchain -------------------------
+# --- 5. Pre-download platform (pioarduino) and toolchain -------------------------
 # 'pkg install' downloads platform, framework and toolchain for all [env:...] in
 # platformio.ini. The first real build additionally rebuilds ESP-IDF with
 # custom_sdkconfig (~4 min per board).
 info "Downloading platform and toolchain (~1 GB the first time)"
 (cd "$FW" && "$PIO" pkg install)
 
-# --- 5. Access to USB-UART adapters (Linux only) ---------------------------------
+# --- 6. Access to USB-UART adapters (Linux only) ---------------------------------
 if [[ "$(uname)" == "Linux" ]] && ! id -nG | grep -qw dialout; then
   warn "user is not in the 'dialout' group - to flash via USB: sudo usermod -aG dialout $USER (then log in again)"
 fi
 
-# --- 6. IntelliSense: compiler calls for VS Code (firmware/compile_commands.json) ------
+# --- 7. IntelliSense: compiler calls for VS Code (firmware/compile_commands.json) ------
 info "Writing firmware/compile_commands.json for IntelliSense"
 PIO="$PIO" "$ROOT/tools/gen-compiledb.sh" || warn "compile_commands.json failed - IntelliSense will report false errors"
 
-# --- 7. Optional: build all boards ----------------------------------------------
+# --- 8. Optional: build all boards ----------------------------------------------
 if [[ $BUILD -eq 1 ]]; then
   for env in zb-gw03 wt32-eth01 cyd; do
     info "Building $env"

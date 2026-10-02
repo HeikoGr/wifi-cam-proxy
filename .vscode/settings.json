@@ -1,6 +1,7 @@
 {
     // IntelliSense from the real compiler calls (tools/gen-compiledb.sh)
     "C_Cpp.default.compileCommands": "${workspaceFolder}/firmware/compile_commands.json",
+    "cmake.cmakePath": "${workspaceFolder}/.venv/bin/cmake",
     "cmake.sourceDirectory": "${workspaceFolder}/firmware/.dummy",
     "tasks.statusbar.limit": 4,
     "tasks.statusbar.select.label": "$(list-unordered) More"
