@@ -177,6 +177,7 @@ static const char INDEX_HTML[] = PAGE_HEAD("WiFi-Cam")
 <label class='switch'><input type='checkbox' id='round'>Round</label>
 <button id='zero'>Current position = up</button></span>
 <button id='ledBtn' title='Camera LED on/off' hidden>&#128161; LED</button>
+<input type='range' id='ledLvl' min='0' max='100' title='LED brightness (0 = off)' hidden>
 <a class='btn' href='/snapshot' download='snapshot.jpg'>&#128247; Snapshot</a>
 </div>
 <p id='ledMsg' class='muted small' style='text-align:center'></p>
@@ -211,7 +212,8 @@ $('zero').onclick=async()=>{
   $('on').checked=true;store.set('on',true);apply();
   try{await saveCal(cal)}catch(e){alert('Saving failed: '+e.message)}
 };
-// LED (i4season command 0x0A). Shows the state confirmed by the camera.
+// LED (i4season command 0x0A, JHCMD 20 02). Shows the state confirmed by the camera
+// (JHCMD does not confirm: the state that was sent).
 let ledOn=false;
 function applyLed(){$('ledBtn').className=ledOn?'on':'';$('ledBtn').title='LED '+(ledOn?'on – click to switch off':'off – click to switch on')}
 $('ledBtn').onclick=async()=>{
@@ -222,6 +224,18 @@ $('ledBtn').onclick=async()=>{
     setTimeout(info,1200);
   }catch(e){$('ledMsg').textContent='Not reachable'}
 };
+// brightness (dimmable cameras): sent right away while dragging; while a request is
+// on its way only the newest value is kept and sent afterwards (no backlog)
+let lvlSending=false,lvlNext=null,lvlBusy=false,lvlIdle=0;
+async function sendLvl(v){
+  if(lvlSending){lvlNext=v;return}
+  lvlSending=true;
+  try{await fetch('/led/level/'+v,{method:'POST'});ledOn=+v>0;applyLed()}catch(e){}
+  lvlSending=false;
+  if(lvlNext!==null){const n=lvlNext;lvlNext=null;sendLvl(n)}
+}
+$('ledLvl').oninput=()=>{lvlBusy=true;clearTimeout(lvlIdle);lvlIdle=setTimeout(()=>lvlBusy=false,1500);
+  sendLvl($('ledLvl').value)};
 async function info(){
   const c=await camInfo(); if(!c)return;
   $('choose').hidden=c.state!=='choose';
@@ -235,11 +249,17 @@ async function info(){
     if(ori!==hasOri){hasOri=ori;applyRound();$('ori').hidden=!ori;$('calLink').hidden=!ori;apply()}
   }
   $('ledBtn').hidden=!c.led_supported;
+  $('ledLvl').hidden=!c.led_dimmable;ledFast=!!c.led_dimmable;
+  // off = slider at 0 (the firmware keeps the last level for "LED on")
+  if(c.led_dimmable&&!lvlBusy)$('ledLvl').value=c.led===0?0:c.led_level;
   if(c.led>=0&&(c.led===1)!==ledOn){ledOn=c.led===1;applyLed()}
 }
 applyLed();
 apply();
-info();setInterval(info,5000);
+// status every 5 s; with a dimmable LED every second, so the light button on the device
+// shows up quickly
+let ledFast=false;
+(function poll(){info().finally(()=>setTimeout(poll,ledFast?1000:5000))})();
 loadCal().then(c=>{cal=c;apply()});
 orientation(a=>{if(sm.add(a,cal))apply()});
 </script></body></html>)HTML";

@@ -26,6 +26,7 @@ VideoStats stats;
 CamTelemetry telemetry;
 portMUX_TYPE infoMux = portMUX_INITIALIZER_UNLOCKED;
 std::atomic<int> ledRequest{-1};
+std::atomic<int> ledLevel{100};
 
 void wifiApplyMode();              // main.cpp
 
@@ -35,6 +36,7 @@ void CamTelemetry::reset() {
   charging = -1;
   led = -1;
   ledSupported = false;
+  ledDimmable = false;
   width = height = 0;
   portENTER_CRITICAL(&infoMux);
   vendor[0] = product[0] = firmware[0] = 0;
@@ -615,10 +617,12 @@ size_t cameraJson(char *out, size_t len) {
   add(snprintf(out + o, room(),
                ",\"pref_proto\":\"%s\",\"autoscan\":%s,\"recognized\":%d,\"scan_age_s\":%ld,"
                "\"orientation\":%s,\"battery\":%d,\"charging\":%d,\"led\":%d,\"led_supported\":%s,"
+               "\"led_dimmable\":%s,\"led_level\":%d,"
                "\"width\":%u,\"height\":%u,\"vendor\":",
                protoKey(prefProto), autoScan ? "true" : "false", recognized, scanAt ? (long)((millis() - scanAt) / 1000) : -1L,
                telemetry.hasOrientation ? "true" : "false", (int)telemetry.battery,
                (int)telemetry.charging, (int)telemetry.led, telemetry.ledSupported ? "true" : "false",
+               telemetry.ledDimmable ? "true" : "false", (int)ledLevel,
                (unsigned)telemetry.width, (unsigned)telemetry.height));
   add(jsonStr(out + o, room(), vendor));
   add(snprintf(out + o, room(), ",\"product\":"));

@@ -312,7 +312,11 @@ static void showMenu() {
   buttonCount = 0;
   bool led = telemetry.ledSupported;
   const int W = 152, H = 70, X0 = 6, X1 = 162, Y[] = {6, 84, 162};
-  addButton(X0, Y[0], W, H, !led ? "LED -" : telemetry.led == 1 ? "LED off" : "LED on", led);
+  char ledLabel[24];
+  if (!led) strlcpy(ledLabel, "LED -", sizeof(ledLabel));
+  else if (telemetry.ledDimmable && telemetry.led == 1) snprintf(ledLabel, sizeof(ledLabel), "LED %d%%", (int)ledLevel);
+  else strlcpy(ledLabel, telemetry.led == 1 ? "LED off" : "LED on", sizeof(ledLabel));
+  addButton(X0, Y[0], W, H, ledLabel, led);
   addButton(X1, Y[0], W, H, zoomFull ? "Zoom: 1:1" : "Zoom: fit");
   addButton(X0, Y[1], W, H, "Camera");
   char bright[24];
@@ -373,7 +377,17 @@ static void onTouch(int tx, int ty) {
   int b = hitButton(tx, ty);
   if (screen == Screen::Menu) {
     switch (b) {
-      case B_LED: ledRequest = telemetry.led == 1 ? 0 : 1; return showLive();
+      case B_LED:
+        if (telemetry.ledDimmable) {  // off -> 100 % -> 50 % -> 20 % -> off
+          int now = telemetry.led == 1 ? (int)ledLevel : 0;
+          int next = now == 0 ? 100 : now > 50 ? 50 : now > 20 ? 20 : 0;
+          if (next) ledLevel = next;
+          ledRequest = next ? 1 : 0;
+          telemetry.led = next ? 1 : 0;  // no confirmation: show the new state right away
+          return showMenu();
+        }
+        ledRequest = telemetry.led == 1 ? 0 : 1;
+        return showLive();
       case B_ZOOM: zoomFull = !zoomFull; saveSettings(); return showMenu();
       case B_CHOOSE: cameraRequestScan(); return showChoose();
       case B_BRIGHT:

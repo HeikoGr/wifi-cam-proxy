@@ -21,7 +21,9 @@
 
 namespace {
 
-const uint16_t CMD_PORT = 20000;
+const uint16_t CMD_PORT = 20000;  // camera's command port, and our own: the camera sends
+                                  // its messages to port 20000 of the client
+const uint16_t FDWN_PORT = 20001;  // the same LED message again, as "FDWN" (received only)
 const uint16_t VIDEO_PORT = 10900;
 const size_t HDR_LEN = 8;
 const uint32_t JH_STALL_MS = 1000;      // per czietz: heartbeat again after 1 s of silence
@@ -31,6 +33,16 @@ const uint8_t CMD_INIT1[] = {'J', 'H', 'C', 'M', 'D', 0x10, 0x00};
 const uint8_t CMD_INIT2[] = {'J', 'H', 'C', 'M', 'D', 0x20, 0x00};
 const uint8_t CMD_START[] = {'J', 'H', 'C', 'M', 'D', 0xD0, 0x01};  // heartbeat, starts the data
 const uint8_t CMD_STOP[] = {'J', 'H', 'C', 'M', 'D', 0xD0, 0x02};
+// LED brightness: "JHCMD" 20 02 <0..100>, 0 = off. Sniffed from the MAX-VIEW app (iOS),
+// which sends every slider value; the camera does not answer it directly.
+// Messages of the MAX-VIEW to port 20000 of the client (sniffed with HT40):
+//   "JHCMD" 10 20 <level>   LED level changed with the light button (100/60/30/0)
+//   "JHCMD" 20 00 61 ...     reply to INIT2 (105 bytes, after every handshake): at
+//                            offset 24 the device name ("YPC320"). Byte 7 is always
+//                            0x61, whatever the LED does: not the level.
+// Only the button is reported: commands from the client (20 02) are not.
+// The same level also goes as "FDWN" 20 00 0e 00 01 00 <level> to port 20001: both are
+// received, so a message is only missed if both UDP packets get lost (weak Wi-Fi).
 
 class JhcmdSession : public CamSession {
  public:
@@ -42,12 +54,21 @@ class JhcmdSession : public CamSession {
     local.sin_addr.s_addr = htonl(INADDR_ANY);
     local.sin_port = htons(VIDEO_PORT);
     if (bind(vid_, (sockaddr *)&local, sizeof(local)) != 0) crumb("jhcmd: port %u in use", VIDEO_PORT);
+    local.sin_port = htons(CMD_PORT);  // receive the camera's messages (LED level)
+    if (bind(cmd_, (sockaddr *)&local, sizeof(local)) != 0) crumb("jhcmd: port %u in use", CMD_PORT);
+    fdwn_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    local.sin_port = htons(FDWN_PORT);
+    if (fdwn_ >= 0 && bind(fdwn_, (sockaddr *)&local, sizeof(local)) != 0) {
+      close(fdwn_);
+      fdwn_ = -1;
+    }
     timeval tv = {0, 200 * 1000};
     setsockopt(vid_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     camAddr_.sin_family = AF_INET;
     camAddr_.sin_addr.s_addr = camIp;
     camAddr_.sin_port = htons(CMD_PORT);
-    telemetry.ledSupported = false;
+    telemetry.ledSupported = true;  // MAX-VIEW: yes; other MaxSee devices have a hardware dimmer
+    telemetry.ledDimmable = true;
     diagReset();
     diagLog("[jhcmd] camera %s, receiving on UDP port %u", IPAddress(camIp).toString().c_str(), VIDEO_PORT);
   }
@@ -56,6 +77,7 @@ class JhcmdSession : public CamSession {
     send(CMD_STOP, sizeof(CMD_STOP));
     close(vid_);
     close(cmd_);
+    if (fdwn_ >= 0) close(fdwn_);
   }
 
   void poll(uint8_t *pkt, size_t cap) override {
@@ -63,12 +85,50 @@ class JhcmdSession : public CamSession {
     socklen_t flen = sizeof(from);
     int n = recvfrom(vid_, pkt, cap, 0, (sockaddr *)&from, &flen);
     if (n > 0) logPacket("data", pkt, n, from);
+    // Diagnostics: packets on 10900 that do not look like video (status from the camera,
+    // e.g. after the light button?): not 1450 bytes and not the last packet of a frame,
+    // or other header bytes 5-7 than 14 00 00
+    if (n > 0 && oddLogged_ < 20 &&
+        (n <= (int)HDR_LEN || (n != 1450 && pkt[3] + 1 != pkt[2]) || pkt[5] != 0x14 || pkt[6] || pkt[7])) {
+      oddLogged_++;
+      char hex[32 * 3 + 1];
+      int k = min(n, 32);
+      for (int i = 0; i < k; i++) snprintf(hex + i * 3, 4, "%02x ", pkt[i]);
+      hex[k * 3] = 0;
+      diagLog("[jhcmd] %lu ms: odd packet %d bytes on %u from port %u: %s", millis(), n, VIDEO_PORT,
+              ntohs(from.sin_port), hex);
+    }
     if (n > (int)HDR_LEN) captureRaw(pkt, n);
-    // Replies on the command socket (not used by the protocol, only logged)
-    uint8_t reply[64];
+    // Messages of the camera on our port 20000 (LED level, device name)
+    uint8_t reply[128];
     flen = sizeof(from);
     int r = recvfrom(cmd_, reply, sizeof(reply), MSG_DONTWAIT, (sockaddr *)&from, &flen);
-    if (r > 0) logPacket("reply", reply, r, from);
+    if (r > 0) {
+      logReply(reply, r, from);
+      handleMessage(reply, r);
+    }
+    if (fdwn_ >= 0) {
+      flen = sizeof(from);
+      r = recvfrom(fdwn_, reply, sizeof(reply), MSG_DONTWAIT, (sockaddr *)&from, &flen);
+      // "FDWN" 20 00 0e 00 01 00 <level>: same meaning as "JHCMD" 10 20 <level>
+      if (r >= 11 && !memcmp(reply, "FDWN", 4) && reply[4] == 0x20 && reply[6] == 0x0E) {
+        const uint8_t m[8] = {'J', 'H', 'C', 'M', 'D', 0x10, 0x20, reply[10]};
+        handleMessage(m, sizeof(m));
+      }
+    }
+    // Experiment from /camdiag/send, sent from the command socket (port 20000)
+    uint8_t out[64];
+    size_t olen = sizeof(out);
+    uint16_t oport;
+    if (cameraLinkUp() && diagSendTake(oport, out, olen)) {
+      sockaddr_in to = camAddr_;
+      to.sin_port = htons(oport);
+      sendto(cmd_, out, olen, 0, (sockaddr *)&to, sizeof(to));
+      char hex[64 * 3 + 1];
+      for (size_t i = 0; i < olen; i++) snprintf(hex + i * 3, 4, "%02x ", out[i]);
+      hex[olen * 3] = 0;
+      diagLog("[jhcmd] %lu ms: sent to port %u: %s", millis(), oport, hex);
+    }
 
     if (millis() - lastData_ > JH_STALL_MS && millis() - lastStart_ >= JH_STALL_MS) {
       if (running_) {
@@ -88,6 +148,7 @@ class JhcmdSession : public CamSession {
       building_.reset();
     }
 
+    handleLed();
     if (n <= (int)HDR_LEN) return;
     lastData_ = millis();
     running_ = true;
@@ -177,6 +238,22 @@ class JhcmdSession : public CamSession {
   }
 
  private:
+  // No confirmation from the camera: send twice and take the state as set
+  void handleLed() {
+    int want = ledRequest;
+    if (want < 0 || !cameraLinkUp()) return;
+    int level = want ? constrain((int)ledLevel, 1, 100) : 0;
+    const uint8_t cmd[8] = {'J', 'H', 'C', 'M', 'D', 0x20, 0x02, (uint8_t)level};
+    send(cmd, sizeof(cmd));
+    send(cmd, sizeof(cmd));
+    if (ledRequest.compare_exchange_strong(want, -1)) {
+      telemetry.led = want ? 1 : 0;
+      // The slider may have moved meanwhile (the web UI sets ledLevel before
+      // ledRequest): then send the new value right away instead of losing it
+      if (want && constrain((int)ledLevel, 1, 100) != level) ledRequest = 1;
+    }
+  }
+
   void giveUp() {
     building_.reset();
     stats.framesDropped++;
@@ -226,6 +303,44 @@ class JhcmdSession : public CamSession {
     }
   }
 
+  // "JHCMD" 10 20 <level>: LED changed with the light button. Reply to INIT2: name.
+  void handleMessage(const uint8_t *m, int n) {
+    if (n < 8 || memcmp(m, "JHCMD", 5)) return;
+    if (m[5] == 0x10 && m[6] == 0x20 && m[7] <= 100) {
+      telemetry.led = m[7] ? 1 : 0;
+      if (m[7]) ledLevel = m[7];
+    } else if (m[5] == 0x20 && m[6] == 0x00 && n >= 40) {  // device name at offset 24
+      portENTER_CRITICAL(&infoMux);
+      copyName(telemetry.product, sizeof(telemetry.product), m + 24, min(16, n - 24));
+      portEXIT_CRITICAL(&infoMux);
+    }
+  }
+
+  static void copyName(char *dst, size_t cap, const uint8_t *src, int n) {
+    int i = 0;
+    for (; i < n && i + 1 < (int)cap && src[i]; i++) dst[i] = (src[i] >= 32 && src[i] < 127) ? src[i] : '?';
+    dst[i] = 0;
+  }
+
+  // Messages on port 20000: every change of the content as a line, identical repeats
+  // only counted
+  void logReply(const uint8_t *pkt, int n, const sockaddr_in &from) {
+    Last &l = lastReply_;
+    int k = min(n, (int)sizeof(l.data));
+    if (l.count && l.len == n && !memcmp(l.data, pkt, k)) {
+      l.count++;
+      return;
+    }
+    if (l.count > 1) diagLog("[jhcmd] (previous message %u times)", l.count);
+    l.len = n;
+    l.count = 1;
+    memcpy(l.data, pkt, k);
+    char hex[32 * 3 + 1];
+    for (int i = 0; i < k; i++) snprintf(hex + i * 3, 4, "%02x ", pkt[i]);
+    hex[k * 3] = 0;
+    diagLog("[jhcmd] %lu ms: message %d bytes from port %u: %s", millis(), n, ntohs(from.sin_port), hex);
+  }
+
   // Diagnostics: the first packets of each kind as hex (length, sender port, 24 bytes)
   void logPacket(const char *kind, const uint8_t *pkt, int n, const sockaddr_in &from) {
     uint8_t &count = kind[0] == 'd' ? loggedData_ : loggedReplies_;
@@ -242,8 +357,13 @@ class JhcmdSession : public CamSession {
     sendto(cmd_, data, len, 0, (sockaddr *)&camAddr_, sizeof(camAddr_));
   }
 
-  int cmd_ = -1, vid_ = -1;
+  int cmd_ = -1, vid_ = -1, fdwn_ = -1;
   sockaddr_in camAddr_ = {};
+  struct Last {
+    int len = 0;
+    uint32_t count = 0;
+    uint8_t data[32];
+  } lastReply_;
   Frame building_;
   uint8_t idxs_[MAX_CHUNKS];  // packet numbers of the chunks in building_, sorted
   int count_ = 0;             // packets in building_
@@ -255,7 +375,7 @@ class JhcmdSession : public CamSession {
   bool running_ = false;
   uint16_t frame_ = 0;
   uint32_t framesSeen_ = 0;  // for the heartbeat
-  uint8_t loggedData_ = 0, loggedReplies_ = 0;
+  uint8_t loggedData_ = 0, loggedReplies_ = 0, oddLogged_ = 0;
   uint32_t noJpegStart_ = 0;
   size_t lastSkip_ = 0;  // offset of the JPEG start in packet 0, logged when it changes
   Frame raw_;  // raw capture in progress

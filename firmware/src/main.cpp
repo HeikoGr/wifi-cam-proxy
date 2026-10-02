@@ -675,6 +675,18 @@ static void clientTask(void *arg) {
         c = calibJson;
       }
       sendResponse(fd, 200, "OK", "application/json", c.c_str(), c.length());
+    } else if (post && strncmp(path, "/led/level/", 11) == 0) {
+      // brightness in % (dimmable cameras), 0 = off
+      int level = atoi(path + 11);
+      if (!telemetry.ledDimmable) {
+        sendText(fd, 501, "Not Implemented", "The LED of this camera cannot be dimmed");
+      } else if (level < 0 || level > 100 || !isdigit((unsigned char)path[11])) {
+        sendText(fd, 400, "Bad Request", "/led/level/<0..100>");
+      } else {
+        if (level) ledLevel = level;
+        ledRequest = level ? 1 : 0;
+        sendText(fd, 202, "Accepted", "sent");
+      }
     } else if (post && strncmp(path, "/led/", 5) == 0 &&
                (path[5] == '0' || path[5] == '1') && path[6] == '\0') {
       if (!telemetry.ledSupported) {

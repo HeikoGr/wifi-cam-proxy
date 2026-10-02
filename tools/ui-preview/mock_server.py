@@ -93,6 +93,7 @@ class State:
         self.preferred = "" if scenario == "choose" else "Soulear-6b1c9"
         self.connected = scenario == "normal"
         self.autoscan = True
+        self.led_level = 100
         self.calibration = b"{}"
         self.home_ssid = "HomeNetwork"
 
@@ -123,6 +124,8 @@ class State:
             "charging": 0 if c else -1,
             "led": self.led if c else -1,
             "led_supported": c,
+            "led_dimmable": c,
+            "led_level": self.led_level,
             "width": 640 if c else 0,
             "height": 480 if c else 0,
             "vendor": "YPC" if c else "",
@@ -194,6 +197,10 @@ def make_handler(pages: dict, frame: bytes, state: State):
         def do_POST(self):
             path = self.path.split("?")[0]
             body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            if path.startswith("/led/level/"):
+                state.led_level = int(path[11:] or 0) or state.led_level
+                state.led = 1 if int(path[11:] or 0) else 0
+                return self.send(202, "text/plain", b"sent")
             if path.startswith("/led/"):
                 state.led = 1 if path.endswith("1") else 0
                 return self.send(202, "text/plain", b"sent")

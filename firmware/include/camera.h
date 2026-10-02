@@ -72,6 +72,7 @@ struct CamTelemetry {
   std::atomic<int8_t> charging{-1};         // 1 = charging (meaning uncertain)
   std::atomic<int8_t> led{-1};              // last state confirmed by the camera
   std::atomic<bool> ledSupported{false};
+  std::atomic<bool> ledDimmable{false};     // brightness adjustable (JHCMD/MAX-VIEW)
   std::atomic<uint16_t> width{0}, height{0};  // per video header (Soulear wrongly reports 640x480)
   char vendor[33] = "", product[33] = "", firmware[17] = "";  // guarded by infoMux
   void reset();
@@ -81,6 +82,8 @@ extern portMUX_TYPE infoMux;
 
 // LED request from the web UI (-1 = none, 0/1); the session sends it
 extern std::atomic<int> ledRequest;
+// Brightness in % used when the LED is on (dimmable cameras only), default 100
+extern std::atomic<int> ledLevel;
 
 // From main.cpp
 extern volatile bool rescueMode;
