@@ -473,6 +473,10 @@ Shown on the start page, in `/cameras.json` (`battery`, `charging`, `led`) and i
 - No PSRAM: GPIO16/17 are used for Ethernet. Only ~120 KB RAM + ~58 KB IRAM.
 - Orientation correction only in the browser (CSS rotation). The CYD always shows the image turned by the fixed −90°, VLC/Home Assistant get the raw image (−90°).
 - Dropouts at Wi-Fi RSSI < −70 dBm. Fix: place the ZB-GW03 closer to the otoscope.
+- The camera serves only the client that connected last: the vendor app and the bridge cannot
+  be used at the same time (observed with the Soulear and the iOS app).
+- 720p microscopes (frames above 48 KB): only one stream viewer, the newest wins. With several
+  viewers each one held a 50–80 KB frame, the heap fell to ~0.5 KB and the Wi-Fi stalled.
 - No custom firmware for the otoscope: the BK7231U community has no camera driver.
 
 ---

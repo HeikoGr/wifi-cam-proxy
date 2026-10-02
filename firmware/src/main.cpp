@@ -62,6 +62,7 @@ static bool ethBeginOk = false;
 volatile bool rescueMode = false;
 std::atomic<bool> updating{false};
 static std::atomic<int> streamClients{0};
+static std::atomic<uint32_t> streamGen{0};  // number of the newest stream (see handleStream)
 static std::atomic<int> sseClients{0};
 // Wi-Fi mode towards the camera (index into WIFI_MODES), see wifiApplyMode()
 static const char *const WIFI_MODES[] = {"bgn", "bg", "b"};
@@ -220,6 +221,7 @@ static void handleStream(int fd) {
       "HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\n"
       "Cache-Control: no-cache\r\nConnection: close\r\n\r\n";
   crumb("stream open (%d viewers)", (int)streamClients);
+  const uint32_t me = ++streamGen;
   if (sendAll(fd, hdr, sizeof(hdr) - 1)) {
     uint32_t seq = 0;
     uint32_t lastCheck = millis();
@@ -240,6 +242,15 @@ static void handleStream(int fd) {
       seq = s;
       if (clientClosed(fd)) {
         frame.reset();
+        break;
+      }
+      // Large frames (720p microscopes): only one viewer, the newest wins. Each viewer
+      // holds the frame it is sending; with several 50-80 KB frames the heap runs out,
+      // reception drops frames and the Wi-Fi stalls. Also clears stale connections of
+      // a tab that reconnected.
+      if (frame.size() > FRAME_RESERVE_FROM && me != streamGen) {
+        frame.reset();
+        crumb("stream ended: large frames, a newer viewer took over");
         break;
       }
       char part[96];

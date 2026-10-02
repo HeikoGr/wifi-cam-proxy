@@ -101,6 +101,13 @@ class JhcmdSession : public CamSession {
     // one is put at its place by packet number. A packet that belongs to the next frame
     // (other frame number, or a packet number we already have) ends the current one.
     if (building_ && (fno != frame_ || have(idx))) finishFrame(false);
+    // After a frame was given up midway (no memory, too big), ignore its remaining
+    // packets: otherwise they would start a "frame" without a beginning that only costs
+    // memory and is dropped again. It ends with the next frame number or packet 0.
+    if (skipping_) {
+      if (fno == skipFno_ && idx != 0) return;
+      skipping_ = false;
+    }
     if (!building_) {
       building_ = Frame::create();
       if (!building_) {
@@ -149,16 +156,14 @@ class JhcmdSession : public CamSession {
     }
 
     if (building_.size() + plen > MAX_FRAME_BYTES) {
-      building_.reset();
-      stats.framesDropped++;
+      giveUp();
       stats.dropTooBig++;
       return;
     }
     int pos = 0;  // number of stored packets with a smaller number
     while (pos < count_ && idxs_[pos] < idx) pos++;
     if (!building_.insert(pos, payload, plen)) {
-      building_.reset();
-      stats.framesDropped++;
+      giveUp();
       stats.dropNoMem++;
       return;
     }
@@ -172,6 +177,13 @@ class JhcmdSession : public CamSession {
   }
 
  private:
+  void giveUp() {
+    building_.reset();
+    stats.framesDropped++;
+    skipping_ = true;
+    skipFno_ = frame_;
+  }
+
   bool have(uint8_t idx) const {
     for (int i = 0; i < count_; i++)
       if (idxs_[i] == idx) return true;
@@ -238,6 +250,8 @@ class JhcmdSession : public CamSession {
   int total_ = 0;             // packets announced for this frame (0 = unknown)
   int endIdx_ = -1;           // packet with FF D9
   bool haveStart_ = false;    // packet 0 with FF D8 is there
+  bool skipping_ = false;     // rest of a given-up frame (see giveUp)
+  uint16_t skipFno_ = 0;
   bool running_ = false;
   uint16_t frame_ = 0;
   uint32_t framesSeen_ = 0;  // for the heartbeat
