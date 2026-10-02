@@ -37,8 +37,8 @@ Wi-Fi and provides the image in the home network over Ethernet:
   <img src="docs/screenshots/calibrate.png" width="24%" alt="Orientation calibration">
 </p>
 
-The screenshots come from the [UI preview](tools/ui-preview/) with simulated device data and a
-generated test image, not from a real camera.
+The screenshots come from the [UI preview](tools/ui-preview/) with simulated device data; the
+camera picture is a real one taken with the device.
 
 ## Supported cameras
 
@@ -87,6 +87,18 @@ switches the protocol for the next connection (automatic → i4season → JHCMD)
 correction: arbitrary angles would need a frame buffer that does not fit without PSRAM, and in
 90° steps the image jumped back and forth in the hand. 720p microscopes fail on RAM just like with the
 bridge. Code: [firmware/src/main_cyd.cpp](firmware/src/main_cyd.cpp).
+
+<p align="center">
+  <img src="docs/screenshots/cyd-live.png" width="32%" alt="CYD: live image, 1:1">
+  <img src="docs/screenshots/cyd-live-fit.png" width="32%" alt="CYD: live image, fit">
+  <img src="docs/screenshots/cyd-menu.png" width="32%" alt="CYD: menu">
+</p>
+<p align="center">
+  <img src="docs/screenshots/cyd-cameras.png" width="32%" alt="CYD: camera choice">
+  <img src="docs/screenshots/cyd-waiting.png" width="32%" alt="CYD: waiting for the camera">
+</p>
+
+The CYD screenshots are drawn by the real display code on the host ([tools/cyd-preview](tools/cyd-preview/)).
 
 With the Soulear it showed about 11–12 fps at 1:1 and 7–8 fps at "fit"; the JPEG decoder is the
 limit, not Wi-Fi. Since then decoding and display transfer overlap (DMA), the decoder runs on the
@@ -143,6 +155,7 @@ Details on usage, diagnostics and the measurements behind the settings are in
 | [soulear-viewer.py](soulear-viewer.py), [probe-soulear.py](probe-soulear.py) | Python tools for the PC (standard library only) |
 | [docs/](docs/) | project documentation and handovers |
 | [tools/ui-preview/](tools/ui-preview/) | web UI preview without hardware (mock server) and screenshot script |
+| [tools/cyd-preview/](tools/cyd-preview/) | CYD screens drawn by the real display code on the host, screenshot script |
 | [tools/host-tests/](tools/host-tests/) | tests of the camera code (JHCMD packet handling, sniffer) on the host, with a real MAX-VIEW frame |
 
 **Memory:** the code of all protocols lives in flash and runs directly from there. Only the session
