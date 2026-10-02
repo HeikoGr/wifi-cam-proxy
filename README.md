@@ -44,7 +44,7 @@ generated test image, not from a real camera.
 | Family | Detection (SSID starts with) | Devices | Image | Orientation | Battery | LED | Status |
 |---|---|---|---|---|---|---|---|
 | **i4season** | `Soulear`, `SUEAR`, `i4season`, `inskam`, `Yanxuan`, `wifi_camera_` | Hopefox Find T (Soulear app), MS5 microscope | ✅ | ✅ (if present) | ✅ | ✅² | Soulear proven on the device |
-| **MaxSee / JoyHonest** (`JHCMD`) | `Maxsee`, `JH-`, `MAX-VIEW`/`MAXVIEW`¹ | Wi-Fi microscopes at `192.168.29.1`, e.g. MAX-VIEW (1280×720) | ✅ | – | – | – | MAX-VIEW proven on the ZB-GW03 |
+| **MaxSee / JoyHonest** (`JHCMD`) | `Maxsee`, `JH-`, `MAX-VIEW`/`MAXVIEW`¹ | Wi-Fi microscopes at `192.168.29.1`, e.g. MAX-VIEW (1280×720) | ✅ | – | – | ✅ dimmable (MAX-VIEW) | MAX-VIEW proven on the ZB-GW03 |
 
 ¹ Although the MAX-VIEW app is by i4season, the microscope (`MAXVIEW-xxxx`) sits at `192.168.29.1`
 and speaks JHCMD. With the protocol "automatic" the address `192.168.29.1` always selects JHCMD,

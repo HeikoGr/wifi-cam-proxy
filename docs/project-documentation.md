@@ -143,10 +143,11 @@ Observed on a MAX-VIEW microscope (`MAXVIEW-7762`, 2026-10-01) with a raw captur
 
 | Byte | Meaning |
 |---|---|
-| 0–1 | per czietz the frame number (LE); on the MAX-VIEW **always** `01 00` |
+| 0–1 | per czietz the frame number (LE); on the MAX-VIEW `01 00` in one session, counting in another |
 | 2 | number of packets of this frame (seen: 12, 20, 24) |
 | 3 | packet number within the frame |
-| 4–7 | constant `02 14 00 00` |
+| 4 | changes without a visible pattern (`00`…`32` seen); **not** the LED level |
+| 5–7 | `14 00 00` |
 | payload of packet 0 | 16-byte block (`3a 01 44 20 04 00 d5 6e …`), then the JPEG (`FF D8 FF`, comment "GPEncoder") |
 
 - 1280×720 JPEG, 34–82 KB per frame, 1450-byte packets (1442 bytes payload), `FF D9` in the
@@ -157,7 +158,26 @@ Observed on a MAX-VIEW microscope (`MAXVIEW-7762`, 2026-10-01) with a raw captur
   packets, in order and shuffled: the result is byte-identical to the original JPEG.
 - The heartbeat is counted by the firmware itself (every 50 frames), because the frame number
   does not change.
-- The camera does not answer on the command socket. Battery, LED and orientation are not known.
+- **LED, client → camera:** `JHCMD 20 02 <0..100>` to UDP 20000, `0` = off. Sniffed with `/sniff`
+  while dimming in the MAX-VIEW app (iOS); the app sends every slider value (up to `0x61` seen,
+  the camera accepts 100 as well) and the same value as `FDWN 20 00 0e 00 01 00 <v>` to UDP
+  20001. The camera does not confirm it, the firmware sends twice. Checked: 0 turns the LED off
+  (image black), the levels are visible on the LED. The image hardly gets darker when dimming:
+  the camera's auto exposure compensates. The stream carries no feedback of the level (byte 4
+  and the 16-byte block do not follow it).
+- **Camera → client, UDP port 20000 of the client** (the camera sends to the client's port
+  20000, so the session binds it; seen only with an 802.11n sniffer, HT40, see below):
+  - `JHCMD 10 20 <level>`: the **light button on the device** was pressed (100, 60, 30, 0 in
+    turn). Only the button is reported: levels set by the client are not. The same level
+    follows as `FDWN 20 00 0e 00 01 00 <level>` to port 20001; the firmware listens on both,
+    because UDP packets get lost on a weak Wi-Fi.
+  - `JHCMD 20 00 61 …` (105 bytes), after every handshake: device information, the name
+    (`YPC320`) at offset 24. Byte 7 is always `0x61`, whatever the LED does: not the level.
+- Battery and orientation: not known.
+- **Sniffing the vendor app:** the camera talks to the phone in 802.11n with a 40 MHz channel
+  (HT40). A sniffer in b/g or HT20 mode sees the packets of the phone to the camera, but hardly
+  any in the other direction. `/sniff/start` therefore reads the camera's beacon for the
+  secondary channel and listens in HT40 (`/sniff/start/<channel>/above|below|none` forces it).
 
 ---
 
@@ -262,10 +282,15 @@ Serial console (115200 baud) every 5 s:
 | `/status` | GET | all counters as JSON |
 | `/camdiag` | GET | first packets of the current camera session as hex (text) |
 | `/camdiag/raw` | GET | raw capture of one whole frame (all UDP packets with headers): first call requests it (202), the next one fetches it |
+| `/camdiag/send/<port>/<hex>` | POST | experiment: the camera session sends these bytes (max. 64) to the camera's port from its command socket; the camera's messages appear in `/camdiag` |
+| `/led/<0\|1>` | POST | camera LED off/on (on = last brightness) |
+| `/led/level/<0..100>` | POST | LED brightness in % for dimmable cameras (JHCMD), 0 = off |
+| `/sniff/start[/<channel>[/above\|below\|none]]` | POST | sniffer: leave the camera Wi-Fi, record the UDP/TCP traffic of the vendor app with the camera (without UDP video) on the camera's channel, 11n, HT40 as in its beacon |
+| `/sniff`, `/sniff/stop` | GET / POST | read the recording as text / stop and reconnect |
 | `/wifi-setup` | GET/POST | home Wi-Fi for rescue mode (form `ssid`, `pass`) |
 | `/eth10/<0\|1>` | POST | Ethernet 10 Mbit on/off |
 | `/orientation` | GET | server-sent events: orientation sensor ~17×/s |
-| `/led/0`, `/led/1` | POST | camera LED off/on (i4season 0x0A, waits for confirmation) |
+| `/led/0`, `/led/1` | POST | camera LED off/on (i4season 0x0A, waits for confirmation; JHCMD: last brightness) |
 | `/cameras` | GET | choose camera (scan list, selection) |
 | `/cameras.json` | GET | camera state, telemetry (battery, LED, device), scan list |
 | `/cameras/scan` | POST | scan again |
@@ -434,14 +459,14 @@ The camera is idle in rescue mode because Wi-Fi is then needed for reachability.
 |---|---|
 | `/status` | JSON: all counters since start, `last_crash` = backtrace of the last crash |
 | serial console | events (`/log` and `/sensor` were removed to save ~6 KB heap) |
-| `/camdiag` | camera IP, the first replies and video packets of the session as hex: for unknown cameras |
+| `/camdiag` | camera IP, the first video packets, the camera's messages and unusual packets of the session as hex (a ring: the oldest lines go): for unknown cameras |
 | `/camdiag/raw` | one whole frame as received (binary), e.g. to work out a packet format |
 | `stalls_loss` | dropouts after packet loss → weak Wi-Fi signal |
 | `stalls_clean` | dropouts without packet loss → otoscope pauses by itself |
 
 ---
 
-## 11. LED and battery (battery confirmed on the CYD, LED untested)
+## 11. LED and battery (battery confirmed on the CYD, i4season LED untested; JHCMD LED see 3.4)
 
 Following [king-cake/otoscope-windows docs/i4season-protocol.md](https://github.com/king-cake/otoscope-windows/blob/master/docs/i4season-protocol.md):
 

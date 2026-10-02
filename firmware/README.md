@@ -16,6 +16,8 @@ As of 2026-09-30: stable at 17 fps, also with a viewer. Dropouts only occur when
 | `/update` | status, Wi-Fi mode, Ethernet speed, firmware update, restart |
 | `/status` | all counters as JSON |
 | `/camdiag`, `/camdiag/raw` | first packets of the camera session as hex; raw capture of one frame (call twice) |
+| `/sniff/start`, `/sniff`, `/sniff/stop` | sniffer for the vendor app's commands (open camera Wi-Fi, 11n/HT40), e.g. to find LED commands |
+| `/led/level/<0..100>` | LED brightness of dimmable cameras (MAX-VIEW); the light button on the device is followed within a second |
 | `/wifi-setup` | set up the home Wi-Fi for rescue mode (also via the own access point) |
 
 ![Live view](../docs/screenshots/live.png)

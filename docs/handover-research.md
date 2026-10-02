@@ -407,7 +407,7 @@ class XyllaRotationFilter:
 | EarFairy | telemetry on 7099, bytes 0..1 | telemetry byte 2 | `05 02` / `05 01`, without confirmation |
 | JEGOAT | video header float32 at offset 3 | JSON on 61500 | not known |
 | Xylla/iTiMO | video header bytes 16..19 (+ filter) | cmd `0x1017` on 50000 (actively queried) | not known |
-| MaxSee | – | – | not known (microscope has a hardware dimmer) |
+| MaxSee | – | – | MAX-VIEW: `JHCMD 20 02 <0..100>` to 20000, no confirmation (sniffed, see project-documentation 3.4) |
 
 ### 5.6 MaxSee / JoyHonest – UDP 20000 (commands) / 10900 (video)
 
