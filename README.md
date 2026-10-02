@@ -60,8 +60,9 @@ or need RTSP. They are not implemented on the ESP32 yet. More on this in
 **720p microscopes:** an ESP32 without PSRAM has only a little more than 100 KB of RAM for frames.
 Frames above 48 KB are only accepted while enough memory remains free. Otherwise they are dropped
 and counted as `drop_nomem` under `/status`. At 1280×720 that can happen often. The MAX-VIEW sends
-34–82 KB per frame. With frames above 48 KB only one viewer gets the stream: the newest one
+34–84 KB per frame. With frames above 48 KB only one viewer gets the stream: the newest one
 wins, older stream connections end (several viewers each holding a large frame emptied the heap).
+When a new frame does not fit, the stored one is given up if nobody is sending it.
 
 ## Hardware
 

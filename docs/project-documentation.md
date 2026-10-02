@@ -226,6 +226,13 @@ Frames are **not stored as one contiguous block** but as a list of UDP payloads
 - Chunks preferably in the **IRAM remainder** (~44 KB, word-addressable only) → regular heap
   stays free; word-wise copying via `volatile uint32_t*`
 - Reference counting: HTTP clients hold the frame as long as they are sending it
+- **Large frames (720p):** beyond `FRAME_RESERVE_FROM` (48 KB) a chunk is only taken while
+  `FRAME_HEAP_RESERVE` (40 KB) stays free. With the MAX-VIEW's 50–85 KB frames the stored
+  frame and the one being built did not fit together, most frames were dropped (`drop_nomem`,
+  200 in 30 s measured). So when a chunk does not fit, `allocChunk` frees the stored frame if
+  nobody else holds it (no stream viewer sending it, no snapshot, no CYD decoding it) and tries
+  once more (`/status` `released` counts it). Viewers then get the next frame. Checked on the
+  host (`tools/host-tests`, `frame_test.cpp`).
 
 **IRAM trap:** `getFreeHeap()` includes ~44 KB of IRAM that cannot be used for `malloc()` and
 task stacks. The firmware therefore uses `heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)`.

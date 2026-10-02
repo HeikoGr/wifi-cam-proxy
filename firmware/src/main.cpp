@@ -313,13 +313,14 @@ static void handleStatus(int fd) {
   char json[1536];
   int n = snprintf(json, sizeof(json),
                    "{\"version\":\"%s\",\"commit\":\"%s\",\"reset_reason\":\"%s\",\"boot_count\":%u,\"mode\":\"%s\",\"fps\":%.1f,\"frames\":%u,"
-                   "\"dropped\":%u,\"drop_nomem\":%u,\"drop_toobig\":%u,\"drop_incomplete\":%u,\"packets_lost\":%u,\"damaged\":%u,\"max_frame\":%u,\"handshakes\":%u,\"keepalives\":%u,\"stalls_loss\":%u,\"stalls_clean\":%u,\"clean_stall_times\":[%s],\"stream_clients\":%d,\"sse_clients\":%d,\"client_tasks\":%d,"
+                   "\"dropped\":%u,\"drop_nomem\":%u,\"drop_toobig\":%u,\"drop_incomplete\":%u,\"packets_lost\":%u,\"damaged\":%u,\"released\":%u,\"max_frame\":%u,\"handshakes\":%u,\"keepalives\":%u,\"stalls_loss\":%u,\"stalls_clean\":%u,\"clean_stall_times\":[%s],\"stream_clients\":%d,\"sse_clients\":%d,\"client_tasks\":%d,"
                    "\"wifi_connected\":%s,\"wifi_ssid\":\"%s\",\"wifi_rssi\":%d,\"wifi_mode\":\"%s\",\"wifi_tx_dbm\":%.2f,\"wifi_ip\":\"%s\",\"home_ssid\":\"%s\",\"ap\":\"%s\",\"eth10\":%d,"
                    "\"cam_proto\":\"%s\",\"battery\":%d,\"led\":%d,"
                    "\"eth_begin\":%s,\"eth_started\":%s,\"eth_link\":%s,\"eth_speed\":%d,\"eth_full_duplex\":%s,\"eth_tx_store_forward\":%d,\"eth_ip\":\"%s\",\"free_heap\":%u,\"max_alloc\":%u,\"min_heap\":%u,\"iram_heap\":%u,\"psram\":%u,\"uptime_s\":%lu,\"last_crash\":\"%s\"}",
                    FW_VERSION, FW_COMMIT, resetReasonText(), (unsigned)bootCount, rescueMode ? "rescue" : "normal", currentFps,
                    (unsigned)stats.framesTotal, (unsigned)stats.framesDropped, (unsigned)stats.dropNoMem,
                    (unsigned)stats.dropTooBig, (unsigned)stats.dropIncomplete, (unsigned)stats.packetsLost, (unsigned)stats.framesDamaged,
+                   (unsigned)stats.framesReleased,
                    (unsigned)stats.maxFrameBytes, (unsigned)stats.handshakes, (unsigned)stats.keepalives, (unsigned)stats.stallsLoss, (unsigned)stats.stallsClean, times,
                    (int)streamClients, (int)sseClients, (int)clientTasks, wifiOk ? "true" : "false",
                    wifiOk ? WiFi.SSID().c_str() : "", wifiOk ? WiFi.RSSI() : 0, WIFI_MODES[wifiMode], wifiTxDbm(),

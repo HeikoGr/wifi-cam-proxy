@@ -51,6 +51,7 @@ struct VideoStats {
   std::atomic<uint32_t> dropIncomplete{0};  // packet(s) of the frame lost
   std::atomic<uint32_t> packetsLost{0};     // gaps in the sequence number
   std::atomic<uint32_t> framesDamaged{0};   // shown despite packet loss
+  std::atomic<uint32_t> framesReleased{0};  // stored frame freed for a new one (memory short)
   std::atomic<uint32_t> maxFrameBytes{0};
   std::atomic<uint32_t> handshakes{0};
   std::atomic<uint32_t> keepalives{0};

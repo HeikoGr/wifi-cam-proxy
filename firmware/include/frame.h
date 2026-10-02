@@ -99,6 +99,7 @@ class Frame {
     p_ = nullptr;
   }
   explicit operator bool() const { return p_ != nullptr; }
+  int useCount() const { return p_ ? p_->refs.load() : 0; }  // references to this frame
   size_t size() const { return p_->len; }
   int chunks() const { return p_->n; }
   const uint8_t *chunk(int i) const { return p_->chunk[i]; }
