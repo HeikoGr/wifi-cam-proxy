@@ -47,8 +47,19 @@ werden nur angenommen, solange genug Speicher frei bleibt. Sonst werden sie verw
 |---|---|---|---|
 | **ZB-GW03 v1.4** (Zigbee-Gateway, umgeflasht) | GPIO17, vom ESP32 erzeugt | 10 Mbit | WLAN-Empfang stört den Takt bei 100 Mbit. 10 Mbit reichen für 3 Zuschauer. Läuft zuverlässig. |
 | **WT32-ETH01** | GPIO0, eigener Quarz | 100 Mbit | Konfiguration nach Datenblatt, am Gerät noch nicht getestet |
+| **CYD ESP32-2432S028R** („Cheap Yellow Display“) | – | kein Ethernet | zeigt das Bild direkt auf dem 2,8"-Display (Touch-Menü), siehe unten. Ungetestet |
 
 Pins und Board-Auswahl stehen in [firmware/include/config.h](firmware/include/config.h).
+
+### CYD als Kamera-Display
+
+Mit `pio run -e cyd -t upload` wird das CYD zum eigenständigen Anzeigegerät: Es sucht die
+Kamera wie die Bridge und zeigt den mittleren 320×240-Ausschnitt in voller Auflösung (Zoom 1:1).
+Alternativ zeigt es das ganze Bild verkleinert (480×480 → 240×240). Ist der Prozessor langsamer
+als die Kamera, fallen Bilder von selbst weg. Angezeigt wird immer das neueste Bild. Ein Tipp aufs
+Bild öffnet das Menü mit LED, Lagekorrektur, „Lage = oben“, Zoom, Kamerawahl und Helligkeit. Die Lagekorrektur dreht in 90°-Schritten, weil für beliebige Winkel ohne
+PSRAM der Bildpuffer fehlt. 720p-Mikroskope scheitern wie bei der Bridge am RAM. Code:
+[firmware/src/main_cyd.cpp](firmware/src/main_cyd.cpp).
 
 ## Schnellstart
 
@@ -88,6 +99,7 @@ Details zu Bedienung, Diagnose und den Messungen hinter den Einstellungen findes
 | [firmware/src/frame.cpp](firmware/src/frame.cpp) | Bildspeicher (Paketliste im IRAM-Rest) |
 | [firmware/src/rescue.cpp](firmware/src/rescue.cpp) | Notfall-Modus: Heim-WLAN oder eigener Access Point |
 | [firmware/src/main.cpp](firmware/src/main.cpp) | HTTP-Server, Ethernet, OTA |
+| [firmware/src/main_cyd.cpp](firmware/src/main_cyd.cpp) | statt main.cpp auf dem CYD: Display, Touch-Menü |
 | [firmware/include/web_ui.h](firmware/include/web_ui.h) | Weboberfläche |
 | [soulear-viewer.py](soulear-viewer.py), [probe-soulear.py](probe-soulear.py) | Python-Werkzeuge für den PC (nur Standardbibliothek) |
 
@@ -144,6 +156,8 @@ Nachimplementierungen der Beschreibungen, kopiert wurde kein Code.
 
 - [syssi/esphome-zb-gw03](https://github.com/syssi/esphome-zb-gw03): Pinbelegung ZB-GW03
 - [egnor/wt32-eth01](https://github.com/egnor/wt32-eth01): Pinbelegung WT32-ETH01
+- [lovyan03/LovyanGFX](https://github.com/lovyan03/LovyanGFX) und [bitbank2/JPEGDEC](https://github.com/bitbank2/JPEGDEC):
+  Display/Touch und JPEG-Dekoder für das CYD
 - [pioarduino/platform-espressif32](https://github.com/pioarduino/platform-espressif32): Arduino-Core 3.x
   mit `custom_sdkconfig` für PlatformIO
 

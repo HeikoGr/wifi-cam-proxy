@@ -20,6 +20,24 @@
       "problemMatcher": []
     },
     {
+      "label": "Build (CYD)",
+      "type": "shell",
+      "command": "pio run -e cyd",
+      "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" } },
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Flash USB (CYD)",
+      "type": "shell",
+      "command": "pio run -e cyd -t upload && pio device monitor",
+      "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" } },
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
       "label": "Flash USB (ZB-GW03)",
       "type": "shell",
       "command": "pio run -e zb-gw03 -t upload",

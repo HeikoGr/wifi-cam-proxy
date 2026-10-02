@@ -45,7 +45,19 @@
 //   -DBOARD_WT32_ETH01
 // ================================================================================
 
-#if defined(BOARD_WT32_ETH01)
+#if defined(BOARD_CYD)
+// --- CYD ESP32-2432S028R: Display statt Ethernet (src/main_cyd.cpp) -------------
+// Display (HSPI 13/12/14, DC 2, CS 15, Licht 21) und Touch (XPT2046 25/32/39/33)
+// stellt LovyanGFX selbst ein, inkl. Erkennung ILI9341/ST7789.
+#define LED_GREEN_GPIO     -1
+#define LED_RED_GPIO       -1
+#define ZIGBEE_NRST_GPIO   -1
+#define CYD_RGB_LED_PINS   {4, 16, 17}     // RGB-LED, active LOW: beim Start ausschalten
+// Kamerabild um 90° drehen: Richtung von setRotation() am Gerät prüfen (+1 / -1)
+#define CYD_ROTATE_DIR     1
+#define CYD_MENU_TIMEOUT_MS 15000          // Menü schließt sich von selbst
+
+#elif defined(BOARD_WT32_ETH01)
 // --- WT32-ETH01 (ESP32 + LAN8720 mit eigenem 50-MHz-Quarz auf GPIO0) ------------
 // Vorteil gegenüber ZB-GW03: Externer Quarz ist unabhängig vom WLAN-Empfang,
 // daher kein 10-Mbit-Limit nötig. Bis zu 100 Mbit auch bei gleichzeitigem WLAN.
