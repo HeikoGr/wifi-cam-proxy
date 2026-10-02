@@ -200,6 +200,15 @@ static bool drawFrame(const Frame &f) {
     }
   }
 
+  // Log every change of the geometry (to analyse jumps of the image)
+  static int geo[8] = {};
+  int now[8] = {W, H, rot, zoomFull, dx, dy, w, h};
+  if (memcmp(geo, now, sizeof(geo))) {
+    memcpy(geo, now, sizeof(geo));
+    Serial.printf("[geo] jpeg %dx%d, rot %d, %s, decode at %d,%d, visible %d,%d %dx%d\r\n", W, H, rot,
+                  zoomFull ? "1:1" : "fit", dx, dy, x, y, w, h);
+  }
+
   lcd.startWrite();
   if (x != lastX || y != lastY || w != lastW || h != lastH || rot != lastRot) {
     lcd.fillScreen(TFT_BLACK);  // geometry changed -> clear the border
