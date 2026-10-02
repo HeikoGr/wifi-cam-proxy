@@ -270,6 +270,7 @@ Serial console (115200 baud) every 5 s:
 | `/cameras.json` | GET | camera state, telemetry (battery, LED, device), scan list |
 | `/cameras/scan` | POST | scan again |
 | `/cameras/select` | POST | form `ssid`, `pass`, `proto` (`auto`/`i4season`/`jhcmd`); empty SSID = clear selection |
+| `/cameras/autoscan/<0\|1>` | POST | automatic scan off/on (stored in NVS). Off: no scans of its own, only reconnects to the remembered camera |
 | `/wifi/<bgn\|bg\|b>` | POST | switch the Wi-Fi mode towards the camera |
 | `/wifi/tx/<8..84>` | POST | Wi-Fi transmit power in 0.25 dBm |
 | `/restart` | POST | restart |
@@ -323,6 +324,7 @@ Important constants:
 | `eth10` | Ethernet 10 Mbit (default: on) | `POST /eth10/<0\|1>` |
 | `home_ssid`, `home_pass` | home Wi-Fi for rescue mode | `/wifi-setup` |
 | `cam_ssid`, `cam_pass`, `cam_proto` | last connected camera | `/cameras` |
+| `cam_autoscan` | automatic scan on/off (default on) | `/cameras` |
 | `cyd_zoom`, `cyd_bright` | CYD settings | CYD touch menu |
 
 ### 6.3 Secrets ([firmware/include/secrets.h](../firmware/include/secrets.h))

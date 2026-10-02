@@ -654,6 +654,13 @@ static void clientTask(void *arg) {
     } else if (post && strcmp(path, "/cameras/scan") == 0) {
       cameraRequestScan();
       sendText(fd, 202, "Accepted", "Scan started");
+    } else if (post && (strcmp(path, "/cameras/autoscan/0") == 0 || strcmp(path, "/cameras/autoscan/1") == 0)) {
+      if (!authorized(req.get())) {
+        sendText(fd, 401, "Unauthorized", "Wrong OTA password");
+      } else {
+        cameraSetAutoScan(path[18] == '1');
+        sendText(fd, 200, "OK", path[18] == '1' ? "Automatic scan on" : "Automatic scan off");
+      }
     } else if (post && strcmp(path, "/cameras/select") == 0) {
       if (!authorized(req.get())) sendText(fd, 401, "Unauthorized", "Wrong OTA password");
       else handleCameraSelect(fd, req.get(), body, bodyLen);

@@ -92,6 +92,10 @@ void cameraRestartWifi();  // reconnect after the Wi-Fi mode changed
 // Selection from the web UI. Empty SSID = clear the preference, automatic again
 bool cameraSelect(const char *ssid, const char *pass, CamProto proto);
 void cameraRequestScan();
+// Automatic scan (NVS, default on). Off: no scans of its own, only reconnect to the
+// remembered camera; scanning only on request (cameraRequestScan).
+bool cameraAutoScan();
+void cameraSetAutoScan(bool on);
 // For devices without a web UI (CYD): query state and scan list directly
 struct ScanEntry {
   char ssid[33];

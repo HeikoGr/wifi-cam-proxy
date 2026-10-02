@@ -92,6 +92,7 @@ class State:
         self.start = time.time()
         self.preferred = "" if scenario == "choose" else "Soulear-6b1c9"
         self.connected = scenario == "normal"
+        self.autoscan = True
         self.calibration = b"{}"
         self.home_ssid = "HomeNetwork"
 
@@ -112,6 +113,7 @@ class State:
             "proto": "i4season" if c else "",
             "preferred": self.preferred,
             "pref_proto": "auto",
+            "autoscan": self.autoscan,
             "recognized": 2,
             "scan_age_s": 12,
             "orientation": c,
@@ -196,6 +198,9 @@ def make_handler(pages: dict, frame: bytes, state: State):
             if path == "/calibration":
                 state.calibration = body
                 return self.send(200, "text/plain", b"Saved")
+            if path.startswith("/cameras/autoscan/"):
+                state.autoscan = path.endswith("1")
+                return self.send(200, "text/plain", b"Automatic scan " + (b"on" if state.autoscan else b"off"))
             if path == "/cameras/select":
                 ssid = parse_qs(body.decode()).get("ssid", [""])[0]
                 state.preferred, state.connected = ssid, bool(ssid)

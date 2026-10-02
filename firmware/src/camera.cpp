@@ -174,6 +174,7 @@ static bool selPending = false;              // selection from the web UI
 static char selSsid[33], selPass[65];
 static CamProto selProto;
 static std::atomic<bool> scanPending{false};
+static std::atomic<bool> autoScan{true};      // see cameraSetAutoScan()
 
 // For the video task: active session, recreated via sessionGen on change
 static std::atomic<CamProto> activeProto{CamProto::None};
@@ -234,6 +235,7 @@ static void loadPref() {
     strlcpy(prefPass, p.getString("cam_pass", "").c_str(), sizeof(prefPass));
     prefProto = protoFromKey(p.getString("cam_proto", "auto").c_str());
     if (prefProto == CamProto::None) prefProto = CamProto::Auto;
+    autoScan = p.getBool("cam_autoscan", true);
     p.end();
   }
 }
@@ -371,6 +373,33 @@ void cameraOnWifiGotIp() {
   stateSince = millis();
 }
 
+bool cameraAutoScan() { return autoScan; }
+void cameraSetAutoScan(bool on) {
+  autoScan = on;
+  Preferences p;
+  if (p.begin("otoskop", false)) {
+    p.putBool("cam_autoscan", on);
+    p.end();
+  }
+  crumb("camera: automatic scan %s", on ? "on" : "off");
+}
+
+// Without automatic scan: try the current camera again instead of scanning
+static bool reconnectInstead() {
+  if (autoScan) return false;
+  char ssid[33], pass[65];
+  CamProto proto;
+  {
+    std::lock_guard<std::mutex> lock(camMutex);
+    strlcpy(ssid, curSsid, sizeof(ssid));
+    strlcpy(pass, curPass, sizeof(pass));
+    proto = curProto;
+  }
+  if (!*ssid) return false;
+  connectTo(ssid, pass, proto);
+  return true;
+}
+
 void cameraLoop() {
   if (savePref.exchange(false)) storePref();
   if (updating) return;
@@ -398,6 +427,7 @@ void cameraLoop() {
       CamProto proto = selProto;
       if (!*ssid) {  // clear preference -> scan again and choose automatically
         prefSsid[0] = prefPass[0] = 0;
+        curSsid[0] = curPass[0] = 0;  // so that "reconnect instead of scan" does not take it
         prefProto = CamProto::Auto;
         lock.unlock();
         storePref();
@@ -425,7 +455,7 @@ void cameraLoop() {
       break;
     }
     case CamState::Connecting:
-      if (millis() - stateSince > CAM_CONNECT_TIMEOUT_MS) startScan(false);
+      if (millis() - stateSince > CAM_CONNECT_TIMEOUT_MS && !reconnectInstead()) startScan(false);
       break;
     case CamState::Connected:
       if (connected) {
@@ -435,7 +465,7 @@ void cameraLoop() {
         lostSince = millis();  // auto-reconnect tries on its own first
       } else if (millis() - lostSince > CAM_LOST_RESCAN_MS) {
         lostSince = 0;
-        startScan(false);
+        if (!reconnectInstead()) startScan(false);
       }
       break;
     case CamState::Scanning: {
@@ -459,8 +489,10 @@ void cameraLoop() {
     case CamState::WaitChoice:
     case CamState::Idle:
       if (scanPending.exchange(false) ||
-          millis() - stateSince > (state == CamState::Idle ? CAM_RESCAN_MS : CAM_CHOICE_RESCAN_MS))
+          (autoScan && millis() - stateSince > (state == CamState::Idle ? CAM_RESCAN_MS : CAM_CHOICE_RESCAN_MS)))
         startScan(false);
+      else if (!autoScan && millis() - stateSince > CAM_RESCAN_MS && !reconnectInstead())
+        stateSince = millis();  // no camera remembered: wait for "Rescan"
       break;
   }
 }
@@ -480,6 +512,7 @@ bool cameraSelect(const char *ssid, const char *pass, CamProto proto) {
 }
 
 void cameraRequestScan() { scanPending = true; }
+
 
 // --- JSON for /cameras ------------------------------------------------------------
 static size_t jsonStr(char *out, size_t len, const char *s) {  // "…" with escapes
@@ -526,10 +559,10 @@ size_t cameraJson(char *out, size_t len) {
   add(snprintf(out + o, room(), ",\"proto\":\"%s\",\"preferred\":", protoKey(activeProto)));
   add(jsonStr(out + o, room(), prefSsid));
   add(snprintf(out + o, room(),
-               ",\"pref_proto\":\"%s\",\"recognized\":%d,\"scan_age_s\":%ld,"
+               ",\"pref_proto\":\"%s\",\"autoscan\":%s,\"recognized\":%d,\"scan_age_s\":%ld,"
                "\"orientation\":%s,\"battery\":%d,\"charging\":%d,\"led\":%d,\"led_supported\":%s,"
                "\"width\":%u,\"height\":%u,\"vendor\":",
-               protoKey(prefProto), recognized, scanAt ? (long)((millis() - scanAt) / 1000) : -1L,
+               protoKey(prefProto), autoScan ? "true" : "false", recognized, scanAt ? (long)((millis() - scanAt) / 1000) : -1L,
                telemetry.hasOrientation ? "true" : "false", (int)telemetry.battery,
                (int)telemetry.charging, (int)telemetry.led, telemetry.ledSupported ? "true" : "false",
                (unsigned)telemetry.width, (unsigned)telemetry.height));

@@ -595,9 +595,11 @@ border-bottom:1px solid var(--line)}.net td{border:0;padding:2px}.net td:first-c
 <div class='card'><dl class='kv' id='st'><dt>State</dt><dd>loading…</dd></dl></div>
 <div class='card'><h2>Recognised cameras</h2><table id='rec' class='net'></table>
 <p><button id='scan'>&#8635; Rescan</button> <button id='forget'>Clear selection (automatic)</button></p>
+<p><label><input type='checkbox' id='autoscan'> Automatic scan</label></p>
 <p class='muted small'>The device remembers the chosen camera and reconnects to it at startup. If it
 is off, the device takes another recognised camera if exactly one is in range. Scanning while the
-image is running makes it stutter briefly.</p></div>
+image is running makes it stutter briefly. Without automatic scan the device only reconnects to
+the remembered camera and scans only on “Rescan”.</p></div>
 <div class='card'><h2>Other networks</h2>
 <p class='muted small'>Unknown camera? Try it here with protocol “automatic” (192.168.29.1 →
 JHCMD, otherwise by name, else i4season). No image? Pick another protocol and reconnect.</p>
@@ -633,7 +635,9 @@ async function load(){
     c.width&&['Image',c.width+'×'+c.height+' <span class="muted small">(as reported by the camera)</span>'],
     c.battery>=0&&['Battery',c.battery+' %'],
     ['Remembered',c.preferred?esc(c.preferred):'– (automatic)'],
+    ['Automatic scan',c.autoscan?'on':'off'],
     ['Last scan',c.scan_age_s<0?'none yet':c.scan_age_s+' s ago']]);
+  $('autoscan').checked=!!c.autoscan;
   // do not rebuild the tables while a protocol list is open (it would close)
   if(document.activeElement&&document.activeElement.matches('select[data-p]'))return;
   const rec=c.networks.filter(n=>n.proto), oth=c.networks.filter(n=>!n.proto);
@@ -650,6 +654,7 @@ function select(ssid){
   const s=[...document.querySelectorAll('select[data-p]')].find(e=>e.dataset.p===ssid);
   post('/cameras/select',new URLSearchParams({ssid,pass:$('wpw').value,proto:s?s.value:'auto'}).toString())}
 $('forget').onclick=()=>post('/cameras/select','ssid=');
+$('autoscan').onchange=e=>post('/cameras/autoscan/'+(e.target.checked?1:0),'');
 $('scan').onclick=async()=>{await fetch('/cameras/scan',{method:'POST'});$('msg').textContent='Scanning…';setTimeout(load,4000)};
 load();setInterval(load,4000);
 </script></body></html>)HTML";
