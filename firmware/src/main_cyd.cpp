@@ -515,17 +515,20 @@ void setup() {
 void loop() {
   cameraLoop();
   static uint32_t lastStats = 0, lastFrames = 0, lastDrawn = 0, lastLost = 0, lastDamaged = 0,
-                  lastIncomplete = 0;
+                  lastIncomplete = 0, lastTooBig = 0, lastNoMem = 0;
   if (millis() - lastStats >= 5000) {
     uint32_t total = stats.framesTotal, drawn = drawnFrames, lost = stats.packetsLost,
-             damaged = stats.framesDamaged, incomplete = stats.dropIncomplete;
+             damaged = stats.framesDamaged, incomplete = stats.dropIncomplete,
+             tooBig = stats.dropTooBig, noMem = stats.dropNoMem;
     float dt = (millis() - lastStats) / 1000.0f;
     // Artifacts with "damaged" > 0: Wi-Fi (packet loss). Without: look at draw ms vs.
     // the frame interval of the camera.
     Serial.printf("[stats] received %.1f fps, shown %.1f fps | lost pkts %u, damaged %u, incomplete %u, "
-                  "RSSI %d | draw avg %u ms max %u ms | battery %d%%%s | heap %u (min %u)\r\n",
+                  "too big %u, no mem %u, handshakes %u, RSSI %d | draw avg %u ms max %u ms | battery %d%%%s | "
+                  "heap %u (min %u)\r\n",
                   (total - lastFrames) / dt, (drawn - lastDrawn) / dt, lost - lastLost,
-                  damaged - lastDamaged, incomplete - lastIncomplete, (int)WiFi.RSSI(),
+                  damaged - lastDamaged, incomplete - lastIncomplete, tooBig - lastTooBig, noMem - lastNoMem,
+                  (unsigned)stats.handshakes, (int)WiFi.RSSI(),
                   drawn > lastDrawn ? (unsigned)(drawMsSum / (drawn - lastDrawn)) : 0u,
                   (unsigned)drawMsMax, (int)telemetry.battery, telemetry.charging == 1 ? " (charging?)" : "",
                   heapFree(), heapMin());
@@ -536,6 +539,8 @@ void loop() {
     lastLost = lost;
     lastDamaged = damaged;
     lastIncomplete = incomplete;
+    lastTooBig = tooBig;
+    lastNoMem = noMem;
     lastStats = millis();
   }
   delay(10);

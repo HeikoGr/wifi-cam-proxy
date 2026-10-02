@@ -96,7 +96,9 @@ class I4seasonSession : public CamSession {
     }
 
     telemetry.ledSupported = true;
-    Serial.printf("[i4season] receiving on UDP port %u\r\n", myPort_);
+    diagReset();
+    diagLog("[i4season] camera %s, receiving on UDP port %u, notify port %s", IPAddress(camIp).toString().c_str(),
+            myPort_, notify_ >= 0 ? "10007" : "-");
   }
 
   ~I4seasonSession() override {
@@ -105,7 +107,10 @@ class I4seasonSession : public CamSession {
   }
 
   void poll(uint8_t *pkt, size_t cap) override {
-    int n = recvfrom(sock_, pkt, cap, 0, nullptr, nullptr);
+    sockaddr_in from = {};
+    socklen_t flen = sizeof(from);
+    int n = recvfrom(sock_, pkt, cap, 0, (sockaddr *)&from, &flen);
+    if (n > 0) logPacket(pkt, n, from);
 
     // Keepalive: repeat START as a precaution while video is running (0 = off)
     if (KEEPALIVE_INTERVAL_MS > 0 && haveSeq_ && cameraLinkUp() &&
@@ -230,6 +235,21 @@ class I4seasonSession : public CamSession {
   }
 
  private:
+  // Diagnostics for unknown cameras: the first few replies and video packets of each
+  // session as hex (length, sender port, first 20 bytes)
+  void logPacket(const uint8_t *pkt, int n, const sockaddr_in &from) {
+    bool reply = n >= 12 && memcmp(pkt, MAGIC, 4) == 0;
+    uint8_t &count = reply ? loggedReplies_ : loggedData_;
+    if (count >= 3) return;
+    count++;
+    char hex[20 * 3 + 1];
+    int k = min(n, 20);
+    for (int i = 0; i < k; i++) snprintf(hex + i * 3, 4, "%02x ", pkt[i]);
+    hex[k * 3] = 0;
+    diagLog("[i4season] %lu ms: %s %d bytes from port %u: %s", millis(), reply ? "reply" : "data", n,
+            ntohs(from.sin_port), hex);
+  }
+
   // Camera replies on our socket: devinfo (battery, product) and LED
   void handleReply(const uint8_t *pkt, int n) {
     uint16_t cmd = pkt[6] | (pkt[7] << 8);
@@ -304,6 +324,7 @@ class I4seasonSession : public CamSession {
   uint32_t lastStart_ = 0;     // last START (handshake or keepalive)
   uint32_t lastLoss_ = 0;      // last gap in the packet number
   uint32_t lastNotify_ = 0;
+  uint8_t loggedReplies_ = 0, loggedData_ = 0;  // logPacket()
   uint16_t cmdSeq_ = 5;
   uint32_t ledSent_ = 0;
   int ledTries_ = 0;

@@ -680,6 +680,32 @@ static void clientTask(void *arg) {
       handleOrientation(fd);
     } else if (get && strcmp(path, "/status") == 0) {
       handleStatus(fd);
+    } else if (get && strcmp(path, "/camdiag/raw") == 0) {
+      // first call requests the capture of the next frame, the next one fetches it
+      Frame raw;
+      if (diagRawTake(raw)) {
+        char hdr[200];
+        int h = snprintf(hdr, sizeof(hdr),
+                         "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %u\r\n"
+                         "Content-Disposition: attachment; filename=raw-frame.bin\r\n"
+                         "Cache-Control: no-cache\r\nConnection: close\r\n\r\n",
+                         (unsigned)raw.size());
+        BlockSender out(fd);
+        out.put(hdr, h);
+        putFrame(out, raw);
+        out.flush();
+      } else {
+        diagRawRequest();
+        sendText(fd, 202, "Accepted", "Capture requested, fetch again in a moment\n");
+      }
+    } else if (get && strcmp(path, "/camdiag") == 0) {
+      std::unique_ptr<char[]> text(new (std::nothrow) char[1024]);
+      if (!text) {
+        sendText(fd, 503, "Service Unavailable", "no memory");
+      } else {
+        diagCopy(text.get(), 1024);
+        sendText(fd, 200, "OK", *text.get() ? text.get() : "no session yet\n");
+      }
     } else if (post && strcmp(path, "/update") == 0) {
       handleUpdate(fd, req.get(), body, bodyLen);
     } else if (post && strcmp(path, "/restart") == 0) {

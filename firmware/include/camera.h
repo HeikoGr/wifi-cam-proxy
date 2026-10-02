@@ -102,6 +102,17 @@ struct ScanEntry {
 const char *cameraStateKey();  // "connected", "connecting", "scanning", "choose", "searching", "restart"
 int cameraNetworks(ScanEntry *out, int max);
 void cameraCurrentSsid(char *out, size_t len);
+// Diagnostics of the current session (first packets as hex, see cam_i4season.cpp),
+// also served as /camdiag. diagLog() appends a line, diagReset() starts over.
+void diagLog(const char *fmt, ...);
+void diagReset();
+void diagCopy(char *out, size_t len);
+// Raw capture of one whole frame (all UDP packets including headers, unparsed), for
+// /camdiag/raw: the HTTP side requests it, the session fills it once and hands it over.
+void diagRawRequest();
+bool diagRawWanted();
+void diagRawPut(const Frame &f);
+bool diagRawTake(Frame &out);  // hands the capture over and frees the slot
 // Write the JSON for /cameras into out, returns the length
 size_t cameraJson(char *out, size_t len);
 CamProto cameraProto();            // protocol of the active session

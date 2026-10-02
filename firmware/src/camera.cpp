@@ -62,6 +62,62 @@ static const SsidPattern SSID_PATTERNS[] = {
     {"JH-", CamProto::Jhcmd},
 };
 
+// --- Session diagnostics -------------------------------------------------------------
+static char diagBuf[1024];  // ~8 lines of hex
+static size_t diagLen = 0;
+static portMUX_TYPE diagMux = portMUX_INITIALIZER_UNLOCKED;
+
+void diagLog(const char *fmt, ...) {
+  char line[128];
+  va_list ap;
+  va_start(ap, fmt);
+  int n = vsnprintf(line, sizeof(line), fmt, ap);
+  va_end(ap);
+  if (n < 0) return;
+  n = min(n, (int)sizeof(line) - 1);
+  Serial.printf("%s\r\n", line);
+  portENTER_CRITICAL(&diagMux);
+  if (diagLen + n + 1 < sizeof(diagBuf)) {  // full -> drop further lines
+    memcpy(diagBuf + diagLen, line, n);
+    diagLen += n;
+    diagBuf[diagLen++] = '\n';
+    diagBuf[diagLen] = 0;
+  }
+  portEXIT_CRITICAL(&diagMux);
+}
+
+void diagReset() {
+  portENTER_CRITICAL(&diagMux);
+  diagLen = 0;
+  diagBuf[0] = 0;
+  portEXIT_CRITICAL(&diagMux);
+}
+
+static std::mutex diagRawMutex;
+static Frame diagRaw;
+static std::atomic<bool> diagRawWant{false};
+
+void diagRawRequest() { diagRawWant = true; }
+bool diagRawWanted() { return diagRawWant; }
+void diagRawPut(const Frame &f) {
+  std::lock_guard<std::mutex> lock(diagRawMutex);
+  diagRaw = f;
+  diagRawWant = false;
+}
+bool diagRawTake(Frame &out) {
+  std::lock_guard<std::mutex> lock(diagRawMutex);
+  if (!diagRaw) return false;
+  out = diagRaw;
+  diagRaw.reset();
+  return true;
+}
+
+void diagCopy(char *out, size_t len) {
+  portENTER_CRITICAL(&diagMux);
+  strlcpy(out, diagBuf, len);
+  portEXIT_CRITICAL(&diagMux);
+}
+
 const char *protoKey(CamProto p) {
   switch (p) {
     case CamProto::I4season: return "i4season";
