@@ -726,6 +726,24 @@ static void clientTask(void *arg) {
       out.put(hdr, sizeof(hdr) - 1);
       sniffText([](void *o, const char *line) { ((BlockSender *)o)->put(line, strlen(line)); }, &out);
       out.flush();
+    } else if (post && strncmp(path, "/camdiag/send/", 14) == 0) {
+      // /camdiag/send/<port>/<hex bytes>: experiment, sent by the camera session
+      const char *p = path + 14;
+      char *end;
+      long port = strtol(p, &end, 10);
+      uint8_t data[64];
+      size_t n = 0;
+      bool ok = port > 0 && port < 65536 && *end == '/';
+      for (const char *h = end + 1; ok && *h && n < sizeof(data); h += 2) {
+        if (!isxdigit((unsigned char)h[0]) || !isxdigit((unsigned char)h[1])) ok = false;
+        else data[n++] = (uint8_t)strtol(String(h).substring(0, 2).c_str(), nullptr, 16);
+      }
+      if (!authorized(req.get())) sendText(fd, 401, "Unauthorized", "Wrong OTA password");
+      else if (!ok || !n) sendText(fd, 400, "Bad Request", "/camdiag/send/<port>/<hex>, max. 64 bytes\n");
+      else {
+        diagSendPut((uint16_t)port, data, n);
+        sendText(fd, 202, "Accepted", "queued, see /camdiag\n");
+      }
     } else if (get && strcmp(path, "/camdiag/raw") == 0) {
       // first call requests the capture of the next frame, the next one fetches it
       Frame raw;

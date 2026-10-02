@@ -121,6 +121,10 @@ void diagReset();
 void diagCopy(char *out, size_t len);
 // Raw capture of one whole frame (all UDP packets including headers, unparsed), for
 // /camdiag/raw: the HTTP side requests it, the session fills it once and hands it over.
+// Experiments: send raw bytes to the camera from the session's sockets
+// (/camdiag/send/<port>/<hex>); the session takes the request in its poll loop
+void diagSendPut(uint16_t port, const uint8_t *data, size_t len);
+bool diagSendTake(uint16_t &port, uint8_t *data, size_t &len);  // len: in = capacity
 void diagRawRequest();
 bool diagRawWanted();
 void diagRawPut(const Frame &f);

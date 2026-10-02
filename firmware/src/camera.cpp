@@ -77,7 +77,16 @@ void diagLog(const char *fmt, ...) {
   n = min(n, (int)sizeof(line) - 1);
   Serial.printf("%s\r\n", line);
   portENTER_CRITICAL(&diagMux);
-  if (diagLen + n + 1 < sizeof(diagBuf)) {  // full -> drop further lines
+  // Ring: if full, drop the oldest lines (the first line, the session header, stays)
+  char *second = strchr(diagBuf, '\n');
+  while (diagLen + n + 2 > sizeof(diagBuf) && second && second[1]) {
+    char *third = strchr(second + 1, '\n');
+    if (!third) break;
+    size_t drop = third - second;  // the line after the first one
+    memmove(second + 1, third + 1, diagLen - (third + 1 - diagBuf) + 1);
+    diagLen -= drop;
+  }
+  if (diagLen + n + 2 <= sizeof(diagBuf)) {
     memcpy(diagBuf + diagLen, line, n);
     diagLen += n;
     diagBuf[diagLen++] = '\n';
@@ -96,6 +105,30 @@ void diagReset() {
 static std::mutex diagRawMutex;
 static Frame diagRaw;
 static std::atomic<bool> diagRawWant{false};
+
+static uint8_t diagSendBuf[64];
+static size_t diagSendLen = 0;
+static uint16_t diagSendPort = 0;
+void diagSendPut(uint16_t port, const uint8_t *data, size_t len) {
+  portENTER_CRITICAL(&diagMux);
+  diagSendLen = min(len, sizeof(diagSendBuf));
+  memcpy(diagSendBuf, data, diagSendLen);
+  diagSendPort = port;
+  portEXIT_CRITICAL(&diagMux);
+}
+bool diagSendTake(uint16_t &port, uint8_t *data, size_t &len) {
+  bool have = false;
+  portENTER_CRITICAL(&diagMux);
+  if (diagSendLen) {
+    len = min(len, diagSendLen);
+    memcpy(data, diagSendBuf, len);
+    port = diagSendPort;
+    diagSendLen = 0;
+    have = true;
+  }
+  portEXIT_CRITICAL(&diagMux);
+  return have;
+}
 
 void diagRawRequest() { diagRawWant = true; }
 bool diagRawWanted() { return diagRawWant; }
