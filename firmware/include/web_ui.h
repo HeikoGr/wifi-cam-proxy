@@ -191,14 +191,15 @@ document.addEventListener('DOMContentLoaded',()=>{showAuth();const a=$('auth');
 // MJPEG over fetch instead of <img src=stream>: every frame is shown as its own image,
 // so a stall or the end of the stream is noticed (an <img> just keeps the last frame).
 // The device sends /live as application/octet-stream: Safari fails fetch() on
-// multipart/x-mixed-replace. Reconnects by itself. onState(text): '' = frames arrive, else why not. Returns stop().
-function mjpeg(img,url,onState){
+// multipart/x-mixed-replace. Reconnects by itself. onState(text): '' = frames arrive, else
+// why not; onFrame() once per frame shown. Returns stop().
+function mjpeg(img,url,onState,onFrame){
   let ctl=null,stopped=false,last=0,timer=0,prev='',wait=2000;
   const find=(b,from)=>{for(let i=from;i+3<b.length;i++)if(b[i]===13&&b[i+1]===10&&b[i+2]===13&&b[i+3]===10)return i;return -1};
   const show=jpg=>{
     const u=URL.createObjectURL(new Blob([jpg],{type:'image/jpeg'}));
     img.onload=()=>{if(prev&&prev!==u)URL.revokeObjectURL(prev);prev=u};
-    img.src=u;last=Date.now();onState('');
+    img.src=u;last=Date.now();onState('');if(onFrame)onFrame();
   };
   async function run(){
     ctl=new AbortController();
@@ -248,7 +249,7 @@ static const char INDEX_HTML[] = PAGE_HEAD("WiFi-Cam")
 </style></head><body>)HTML" PAGE_NAV R"HTML(<main class='wide'>
 <p id='choose' class='note' hidden>Several cameras found. Please pick one under <a href='/cameras'>Cameras</a>.</p>
 <p id='camOff' class='note' hidden>The connection to the camera is switched off. <a href='/settings'>Settings</a></p>
-<div class='camline'><span id='cam' class='muted'>…</span><span id='bat' class='badge' hidden></span></div>
+<div class='camline'><span id='cam' class='muted'>…</span><span><span id='fps' class='badge' title='Frames per second shown here (the camera and the frame rate limit in the settings set the rate)' hidden></span> <span id='bat' class='badge' hidden></span></span></div>
 <div id='view' title='Double-click: zoom'><div id='wrap'><img id='img' alt=''></div><div id='vstate'>Connecting…</div></div>
 <div class='toolbar'>
 <button id='zoom' title='Zoom in, then drag the image with the mouse or a finger'>2&times;</button>
@@ -359,7 +360,13 @@ loadCal().then(c=>{cal=c;apply()});
 let oriStarted=false;
 function startOri(){if(!oriStarted){oriStarted=true;orientation(a=>{if(sm.add(a,cal))apply()})}}
 // live image; the text over it says why there is none (switched off, interrupted, ...)
-mjpeg($('img'),'/live',t=>{$('vstate').hidden=!t;$('vstate').textContent=t});
+// fps: frames shown in this browser over the last 2 s
+let frames=0,fpsSince=Date.now();
+mjpeg($('img'),'/live',t=>{$('vstate').hidden=!t;$('vstate').textContent=t;if(t)$('fps').hidden=true},()=>frames++);
+setInterval(()=>{
+  const now=Date.now(),f=frames/((now-fpsSince)/1000);frames=0;fpsSince=now;
+  $('fps').hidden=!(f>0);$('fps').textContent=f.toFixed(f<10?1:0)+' fps';
+},2000);
 settings().then(s=>{if(s)$('vlc').hidden=!s.external});
 </script></body></html>)HTML";
 
