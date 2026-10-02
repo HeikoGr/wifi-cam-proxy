@@ -14,6 +14,11 @@ $CXX $FLAGS $FW/src/cam_jhcmd.cpp jhcmd_stubs.cpp jhcmd_test.cpp -o "$OUT/jhcmd_
 "$OUT/jhcmd_test" data/max-view-frame.bin | grep -v "diag:"
 
 echo
+echo "== JHCMD as on the CYD (JPEG_COLLAPSE_FILL: fill bytes cut for JPEGDEC)"
+$CXX $FLAGS -DJPEG_COLLAPSE_FILL=1 $FW/src/cam_jhcmd.cpp jhcmd_stubs.cpp jhcmd_test.cpp -o "$OUT/jhcmd_cyd_test"
+"$OUT/jhcmd_cyd_test" data/max-view-frame.bin | grep -v "diag:"
+
+echo
 echo "== Frame store: memory rules of allocChunk (no sanitizers: the heap budget is read from mallinfo)"
 $CXX -std=gnu++17 -g -O1 -DBOARD_ZB_GW03 -Istub -I$FW/include $FW/src/frame.cpp frame_test.cpp -o "$OUT/frame_test"
 "$OUT/frame_test"

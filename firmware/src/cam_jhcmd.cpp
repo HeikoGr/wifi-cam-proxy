@@ -322,7 +322,7 @@ class JhcmdSession : public CamSession {
     }
     if (jpeg && (complete || SHOW_DAMAGED_FRAMES)) {
       if (!complete) stats.framesDamaged++;
-      collapseFill(building_);
+      if (JPEG_COLLAPSE_FILL) collapseFill(building_);
       publishFrame(building_);
     } else {
       stats.framesDropped++;
@@ -335,7 +335,8 @@ class JhcmdSession : public CamSession {
   // RSTn marker (allowed by the JPEG standard). JPEGDEC (CYD) stops decoding at the first
   // run of two or more: the rest of the image kept the previous frame, horizontal
   // streaks. So every run in the entropy-coded data is cut down to one FF, in place
-  // (chunks only get shorter). Browsers decode the result the same way.
+  // (chunks only get shorter). Browsers decode both the same way: only with
+  // JPEG_COLLAPSE_FILL (CYD).
   static void collapseFill(Frame &f) {
     static uint8_t buf[2048];
     if (!f.chunks() || f.chunkLen(0) > sizeof(buf)) return;

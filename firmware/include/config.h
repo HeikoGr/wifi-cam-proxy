@@ -73,6 +73,8 @@
 // and on the CYD it stays on screen until the next decode (~200 ms): better the previous
 // clean image a little longer
 #define SHOW_DAMAGED_FRAMES 0
+// JPEGDEC stops at runs of JPEG fill bytes (MAX-VIEW): cut them, see collapseFill()
+#define JPEG_COLLAPSE_FILL 1
 
 #elif defined(BOARD_WT32_ETH01)
 // --- WT32-ETH01 (ESP32 + LAN8720 with its own 50 MHz oscillator on GPIO0) ------------
@@ -147,6 +149,12 @@
 // Show frames with lost packets anyway (1) or drop them (0).
 #ifndef SHOW_DAMAGED_FRAMES
 #define SHOW_DAMAGED_FRAMES 1
+#endif
+// Cut runs of fill bytes FF in the JPEG data to one (JHCMD, cam_jhcmd.cpp). Only the
+// CYD's decoder needs it; browsers decode the frames as they are, so the bridge saves a
+// pass over every frame.
+#ifndef JPEG_COLLAPSE_FILL
+#define JPEG_COLLAPSE_FILL 0
 #endif
 // Wi-Fi mode towards the camera if nothing is stored in NVS ("bgn", "bg", "b").
 #define WIFI_MODE_DEFAULT  "bg"

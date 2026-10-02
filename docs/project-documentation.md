@@ -313,8 +313,10 @@ variant), Wi-Fi RSSI −26 to −49 dBm:
   160 MCUs and pad each interval with up to 32 fill bytes `FF` before the RSTn marker
   (allowed by the standard). JPEGDEC 1.8.4 stops with a decode error at the first run of two
   or more (from row ~210 on in the captured frame); the rest of the display kept the previous
-  frame: horizontal streaks, also with no packet lost. The JHCMD session cuts every run in
-  the scan data down to one `FF` before publishing (browsers decode it the same way).
+  frame: horizontal streaks, also with no packet lost. On the CYD (`JPEG_COLLAPSE_FILL`) the
+  JHCMD session cuts every run in the scan data down to one `FF` before publishing. The bridge
+  leaves the frames as they are: browsers decode both the same way, and it saves a pass over
+  every frame.
   `[stats]` counts `decode errors`.
 - **Last group of a cropped row:** JPEGDEC draws the MCUs of a row in groups (up to
   `MAX_BUFFERED_PIXELS` = 2048 px) and draws a group only once it is full. At 1:1 with 4:2:0
