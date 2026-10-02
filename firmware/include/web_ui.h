@@ -629,9 +629,10 @@ stays away from it, also after a restart. Ethernet and this page stay reachable.
 <div class='card'><h2>Video</h2>
 <label class='switch'><input type='checkbox' id='live' data-url='/stream/live/'>Live view in the browser</label><br>
 <label class='switch'><input type='checkbox' id='external' data-url='/stream/external/'>Stream for VLC and Home Assistant</label>
-<p>Frame rate per viewer: <select id='fps'></select></p>
+<p>Frame rate per viewer for images larger than 640×480: <select id='fps'></select></p>
 <p class='muted small'>Both use the same image. Fewer frames per second mean less load on Ethernet and
 memory; on the ZB-GW03 (10 Mbit) 5 fps is the default, more stutters with 720p microscopes.
+Smaller images (otoscope) always come at the rate the camera delivers.
 With frames above 48 KB (720p) only one viewer is served: the newest one wins.</p>
 <h3>VLC, Home Assistant and other programs</h3>
 <dl class='kv' id='urls'></dl>

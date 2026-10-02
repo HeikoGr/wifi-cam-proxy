@@ -20,6 +20,7 @@
 #include "cpuload.h"
 #include "crashlog.h"
 #include "device.h"
+#include "jpeg_reader.h"
 #include "settings.h"
 #include "rescue.h"
 #include "sniffer.h"
@@ -33,7 +34,7 @@ static std::atomic<int> sseClients{0};
 // Video switches (Settings page, NVS): the browser's live view (/live) and the stream for
 // other programs (/stream: VLC, Home Assistant) separately, and a frame rate limit
 static std::atomic<bool> liveOn{true}, externalOn{true};
-static std::atomic<int> maxFps{STREAM_MAX_FPS};  // per viewer, 0 = as the camera delivers
+static std::atomic<int> maxFps{STREAM_MAX_FPS};  // per viewer, 0 = as the camera delivers (large images only)
 static const int MAX_FPS_LIMIT = 30;
 
 int streamViewers() { return streamClients; }
@@ -222,6 +223,7 @@ static void handleStream(Request &r, const std::atomic<bool> &on) {
     uint32_t lastCheck = millis();
     uint32_t lastSent = 0;   // for maxFps
     size_t lastSize = 0;     // size of the last frame in the store, for replacedByNewer()
+    bool limited = false;    // last frame above STREAM_LIMIT_ABOVE_PX: maxFps applies
     BlockSender out(fd);  // one buffer per viewer, for all frames
     Frame frame;
     // Large frames (720p microscopes): only one viewer, the newest wins. Each viewer
@@ -238,7 +240,7 @@ static void handleStream(Request &r, const std::atomic<bool> &on) {
       // keep the store from freeing it for the next one (releaseIdleFrame)
       uint32_t s = latestFrameSeq();
       int fps = maxFps;
-      if (s != seq && fps > 0) {
+      if (s != seq && fps > 0 && limited) {
         // At most maxFps: wait out the rest of the interval, then send the newest frame
         // (frames in between are skipped, the stream does not fall behind)
         uint32_t since = millis() - lastSent, interval = 1000 / fps;
@@ -263,6 +265,9 @@ static void handleStream(Request &r, const std::atomic<bool> &on) {
       lastSent = millis();  // start to start, so the sending time is not added on top
       seq = s;
       lastSize = frame.size();
+      int imgW = 0, imgH = 0;
+      // Header not readable: go by size (large frames are the ones the link cannot carry)
+      limited = jpegImageSize(frame, imgW, imgH) ? imgW * imgH > STREAM_LIMIT_ABOVE_PX : lastSize > FRAME_RESERVE_FROM;
       if (clientClosed(fd) || replacedByNewer()) {
         frame.reset();
         break;

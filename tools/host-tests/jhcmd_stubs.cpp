@@ -1,10 +1,12 @@
 // Stand-ins for the parts of the firmware that cam_jhcmd.cpp calls (frame store, diagnostics)
 #include "camera.h"
 #include "crashlog.h"
+#include "jpeg_reader.h"
 #include <vector>
 VideoStats stats;
 CamTelemetry telemetry;
 std::vector<std::string> published;
+int publishedW, publishedH;  // image size the HTTP stream reads from the frame (jpegImageSize)
 int allocFailAt = -1, allocCount = 0;  // test: let the n-th chunk allocation fail
 uint8_t *allocChunk(size_t len, size_t) {
   if (allocCount++ == allocFailAt) return nullptr;
@@ -16,6 +18,8 @@ void publishFrame(const Frame &f) {
   std::string s;
   for (int i = 0; i < f.chunks(); i++) s.append((const char *)f.chunk(i), f.chunkLen(i));
   published.push_back(s);
+  publishedW = publishedH = 0;
+  jpegImageSize(f, publishedW, publishedH);
   stats.framesTotal++;
 }
 bool cameraLinkUp() { return false; }

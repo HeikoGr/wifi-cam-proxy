@@ -15,6 +15,26 @@
 
 #include "frame.h"
 
+// Image size from the frame's JPEG header (SOF in the first chunk); false if not found
+inline bool jpegImageSize(const Frame &f, int &w, int &h) {
+  uint8_t b[1024];
+  size_t n = f && f.chunks() ? f.chunkLen(0) : 0;
+  if (n > sizeof(b)) n = sizeof(b);
+  if (n < 4) return false;
+  copyFromChunk(b, f.chunk(0), 0, n);
+  for (size_t pos = 2; pos + 9 <= n && b[pos] == 0xFF;) {
+    uint8_t m = b[pos + 1];
+    if (m >= 0xC0 && m <= 0xC2) {  // SOF0/1/2
+      h = b[pos + 5] << 8 | b[pos + 6];
+      w = b[pos + 7] << 8 | b[pos + 8];
+      return w && h;
+    }
+    if (m == 0xDA) break;  // scan data: no SOF before it
+    pos += 2 + (b[pos + 2] << 8 | b[pos + 3]);
+  }
+  return false;
+}
+
 class FrameReader {
  public:
   void reset(const Frame &f) {

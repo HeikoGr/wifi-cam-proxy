@@ -117,13 +117,15 @@
 // 10 Mbit Ethernet: the 720p MAX-VIEW sends ~22 fps with 33-98 KB per frame (6-17
 // Mbit/s), more than the link carries -> the stream stuttered. While a viewer sends a
 // frame it also holds it, and the next one has to fit beside it. 10 fps still stuttered,
-// so at most 5 fps per viewer (enough for a microscope; also caps the otoscope here).
+// so at most 5 fps per viewer for such large images (enough for a microscope). The
+// otoscope (640x480, 20-45 KB) fits at full rate and is not capped (STREAM_LIMIT_ABOVE_PX).
 #define STREAM_MAX_FPS     5
 
 #endif  // board selection
 #ifndef STREAM_MAX_FPS
 #define STREAM_MAX_FPS     0               // default frames per second per viewer, 0 = unlimited (/settings, NVS stream_fps)
 #endif
+#define STREAM_LIMIT_ABOVE_PX (640 * 480)  // the fps limit applies only to images with more pixels
 
 // LED polarity: ZB-GW03 = inverted (LOW = on), WT32-ETH01 = normal (HIGH = on)
 #if defined(BOARD_WT32_ETH01)

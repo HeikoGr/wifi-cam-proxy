@@ -48,6 +48,10 @@ int main(int argc, char **argv) {
     printf("%-22s published %zu, identical %d, lost +%u, damaged +%u, incomplete +%u\n", c.name, published.size() - before, ok,
            stats.packetsLost - lost0, stats.framesDamaged - dmg0, stats.dropIncomplete - inc0);
     if (c.expectOk && !ok) fails++;
+    if (c.expectOk && got) {
+      extern int publishedW, publishedH;  // the stream's fps limit depends on it
+      if (publishedW != 1280 || publishedH != 720) { printf("FAIL: image size %dx%d, expected 1280x720\n", publishedW, publishedH); fails++; }
+    }
     // flush: finish the partial next frame (packet 0 only) by sending the rest
     std::vector<int> rest; for (int i = 1; i < N; i++) rest.push_back(i); feed(rest);
     published.resize(before);
