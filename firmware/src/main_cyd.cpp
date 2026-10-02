@@ -148,7 +148,11 @@ enum class Screen { Live, Menu, Choose };
 static Screen screen = Screen::Live;
 static uint32_t screenSince = 0;
 static int quarter = -1;              // current rotation of the image
-static int lastW = 0, lastH = 0, lastRot = -1;  // image geometry, for clearing the border
+static int lastX = 0, lastY = 0, lastW = 0, lastH = 0, lastRot = -1;  // image geometry
+static const int OVL_SIDE_W = 38;  // overlay in the side border: needs this much width
+static const int OVL_STRIP = 10;   // otherwise a strip this high above the image
+static bool overlaySide = false;
+static char overlayShown[40] = "";  // last drawn overlay text
 static uint32_t drawnFrames = 0;
 static std::atomic<uint32_t> drawMsSum{0}, drawMsMax{0};  // decode + SPI time, for [stats]
 static uint32_t lastFrameAt = 0;  // for the "no signal" hint
@@ -201,13 +205,36 @@ static bool drawFrame(const Frame &f) {
   }
   int x = (dw - w) / 2, y = (dh - h) / 2;
 
+  // Room for the overlay (top left in UI orientation): in the side border, in the top
+  // border, or else a black strip of OVL_STRIP pixels that the image leaves out. The
+  // strip is cut at both opposite edges, so it does not matter in which direction
+  // setRotation() turns: one of them is the UI top.
+  int turn = ((rot - UI_ROT) % 4 + 4) % 4;
+  int uiW = turn & 1 ? dh : dw, uiH = turn & 1 ? dw : dh;  // display in UI orientation
+  int imgW = turn & 1 ? h : w, imgH = turn & 1 ? w : h;    // image in UI orientation
+  overlaySide = (uiW - imgW) / 2 >= OVL_SIDE_W;
+  if (!overlaySide && (uiH - imgH) / 2 < OVL_STRIP) {
+    if (turn & 1) {
+      int x1 = min(x + w, dw - OVL_STRIP);
+      x = max(x, OVL_STRIP);
+      w = x1 - x;
+    } else {
+      int y1 = min(y + h, dh - OVL_STRIP);
+      y = max(y, OVL_STRIP);
+      h = y1 - y;
+    }
+  }
+
   lcd.startWrite();
-  if (w != lastW || h != lastH || rot != lastRot) {  // geometry changed -> clear the border
-    lcd.fillScreen(TFT_BLACK);
+  if (x != lastX || y != lastY || w != lastW || h != lastH || rot != lastRot) {
+    lcd.fillScreen(TFT_BLACK);  // geometry changed -> clear the border
+    lastX = x;
+    lastY = y;
     lastW = w;
     lastH = h;
     lastRot = rot;
     statusShown[0] = 0;
+    overlayShown[0] = 0;
   }
   lcd.setClipRect(x, y, w, h);  // do not paint edge blocks beyond the image
   jpeg->decode(dx, dy, opt);
@@ -219,26 +246,31 @@ static bool drawFrame(const Frame &f) {
   return true;
 }
 
-// Battery and fps in the free border (left of square images, above wide ones); at
-// 1:1 without a border, top left into the image (redrawn after every frame)
+// Battery and fps in the free border (left of square images, above wide ones) or in
+// the strip the image leaves out. The image never paints there, so only redraw when
+// the text changes (no flicker).
 static void drawOverlay() {
-  char line1[16] = "", line2[16];
+  char line1[16] = "", line2[16], shown[40];
   if (telemetry.battery >= 0) snprintf(line1, sizeof(line1), "%d%%", (int)telemetry.battery);
   bool stale = millis() - lastFrameAt > 3000;  // last frame is old
-  snprintf(line2, sizeof(line2), stale ? "old " : "%.0ffps", shownFps);
+  snprintf(line2, sizeof(line2), stale ? "old" : "%.0ffps", shownFps);
+  snprintf(shown, sizeof(shown), "%d|%s|%s", overlaySide, line1, line2);
+  if (!strcmp(shown, overlayShown)) return;
+  strlcpy(overlayShown, shown, sizeof(overlayShown));
   lcd.setFont(&fonts::Font0);
   lcd.setTextDatum(top_left);
-  lcd.setTextColor(stale ? TFT_RED : TFT_LIGHTGREY, TFT_BLACK);
-  bool side = lastW < lcd.width() - 30;  // side border wide enough?
-  if (side) {
-    lcd.fillRect(0, 0, 38, 20, TFT_BLACK);
+  lcd.setTextPadding(30);  // background behind the whole field: erases longer old text
+  lcd.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+  if (overlaySide) {
     lcd.drawString(line1, 2, 2);
+    lcd.setTextColor(stale ? TFT_RED : TFT_LIGHTGREY, TFT_BLACK);
     lcd.drawString(line2, 2, 12);
   } else {
-    lcd.fillRect(0, 0, 76, 10, TFT_BLACK);
     lcd.drawString(line1, 2, 1);
+    lcd.setTextColor(stale ? TFT_RED : TFT_LIGHTGREY, TFT_BLACK);
     lcd.drawString(line2, 34, 1);
   }
+  lcd.setTextPadding(0);
 }
 
 static void drawStatus(const char *text) {
