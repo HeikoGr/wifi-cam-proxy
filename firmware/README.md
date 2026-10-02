@@ -113,7 +113,7 @@ The switch from ESPHome was done via OTA through the ESPHome port: `esphome.espo
 
 ## What is in the code and why
 
-The measures were measured on the device, with captures on the home network side. Each has a comment in the code ([src/main.cpp](src/main.cpp), [src/cam_i4season.cpp](src/cam_i4season.cpp), [src/frame.cpp](src/frame.cpp)).
+The measures were measured on the device, with captures on the home network side. Each has a comment in the code ([src/http.cpp](src/http.cpp), [src/network.cpp](src/network.cpp), [src/cam_i4season.cpp](src/cam_i4season.cpp), [src/frame.cpp](src/frame.cpp)).
 
 | Problem | Cause | Fix |
 |---|---|---|

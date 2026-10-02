@@ -129,7 +129,9 @@ Details on usage, diagnostics and the measurements behind the settings are in
 | [firmware/src/cam_jhcmd.cpp](firmware/src/cam_jhcmd.cpp) | MaxSee/JoyHonest protocol |
 | [firmware/src/frame.cpp](firmware/src/frame.cpp) | frame store (packet list in the IRAM remainder) |
 | [firmware/src/rescue.cpp](firmware/src/rescue.cpp) | rescue mode: home Wi-Fi or own access point |
-| [firmware/src/main.cpp](firmware/src/main.cpp) | HTTP server, Ethernet, OTA |
+| [firmware/src/main.cpp](firmware/src/main.cpp) | start, loop, rescue mode switch, OTA |
+| [firmware/src/http.cpp](firmware/src/http.cpp) | HTTP server: routes, stream, status, update |
+| [firmware/src/network.cpp](firmware/src/network.cpp) | Ethernet (10 Mbit, store and forward), Wi-Fi mode and transmit power |
 | [firmware/src/main_cyd.cpp](firmware/src/main_cyd.cpp) | instead of main.cpp on the CYD: display, touch menu |
 | [firmware/include/web_ui.h](firmware/include/web_ui.h) | web UI |
 | [soulear-viewer.py](soulear-viewer.py), [probe-soulear.py](probe-soulear.py) | Python tools for the PC (standard library only) |

@@ -94,11 +94,13 @@ extern std::atomic<int> ledRequest;
 // Brightness in % used when the LED is on (dimmable cameras only), default 100
 extern std::atomic<int> ledLevel;
 
-// From main.cpp
+// From main.cpp (Ethernet bridge) or main_cyd.cpp
 extern volatile bool rescueMode;
 extern std::atomic<bool> updating;
 // May the session send commands to the camera right now?
 bool cameraLinkUp();
+// Apply the Wi-Fi mode and transmit power towards the camera (network.cpp; main_cyd.cpp)
+void wifiApplyMode();
 
 // --- Camera management (camera.cpp) -----------------------------------------------
 void cameraBegin();  // in setup(): load NVS, start video task, first connection

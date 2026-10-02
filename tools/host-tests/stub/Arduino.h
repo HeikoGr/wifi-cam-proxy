@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <chrono>
 using std::min; using std::max;
+#include <thread>
+inline void delay(unsigned long ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
 inline unsigned long millis() {
   using namespace std::chrono;
   static auto t0 = steady_clock::now();

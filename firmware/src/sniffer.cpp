@@ -3,10 +3,12 @@
 #include <WiFi.h>
 #include <esp_wifi.h>
 
+#include <atomic>
+#include <mutex>
+
 #include "camera.h"
 #include "crashlog.h"
 
-void wifiApplyMode();  // main.cpp: Wi-Fi mode towards the camera (b/g by default)
 
 namespace {
 
@@ -208,6 +210,37 @@ void sniffStop() {
 }
 
 bool sniffActive() { return active; }
+
+// Request from an HTTP task, carried out by loop()
+static std::mutex reqMutex;  // one request at a time
+static struct {
+  bool start;
+  int channel;
+  uint32_t camIp;
+  char second;
+  int result;
+} req;
+static std::atomic<bool> reqPending{false};
+
+int sniffRequest(bool start, int channel, uint32_t camIp, char second) {
+  std::unique_lock<std::mutex> lock(reqMutex, std::try_to_lock);
+  if (!lock.owns_lock()) return -1;
+  req = {start, channel, camIp, second, -1};
+  reqPending = true;
+  // loop() runs every ~10 ms; the start scans the camera's beacon (~300 ms)
+  for (uint32_t t0 = millis(); reqPending && millis() - t0 < 3000;) delay(10);
+  if (reqPending.exchange(false)) return -1;  // loop() did not get to it: withdrawn
+  return req.result;
+}
+
+void sniffLoop() {
+  if (!reqPending) return;
+  int result = 1;
+  if (req.start) result = sniffStart(req.channel, req.camIp, req.second) ? 1 : 0;
+  else sniffStop();
+  req.result = result;
+  reqPending = false;
+}
 
 bool sniffText(void (*put)(void *ctx, const char *line), void *ctx) {
   char line[700];

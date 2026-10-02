@@ -1,6 +1,6 @@
 #pragma once
 
-// Web pages of the WiFi-Cam-Proxy (included by main.cpp only).
+// Web pages of the WiFi-Cam-Proxy (included by http.cpp only).
 // No external resources (fonts, CDNs): the device usually has no internet access.
 
 // --- Shared head, style and navigation -------------------------------------------

@@ -28,7 +28,6 @@ portMUX_TYPE infoMux = portMUX_INITIALIZER_UNLOCKED;
 std::atomic<int> ledRequest{-1};
 std::atomic<int> ledLevel{100};
 
-void wifiApplyMode();              // main.cpp
 
 void CamTelemetry::reset() {
   hasOrientation = false;
@@ -537,6 +536,7 @@ void cameraLoop() {
       if (n >= 0) collectScan(n);
       WiFi.scanDelete();
       if (connected) {  // requested scan while connected
+        // not setState(): the connection did not change, stateSince and the log stay
         state = CamState::Connected;
         break;
       }
