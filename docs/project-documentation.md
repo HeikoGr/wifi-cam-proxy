@@ -337,6 +337,11 @@ variant), Wi-Fi RSSI −26 to −49 dBm:
 - **No waiting screen between frames:** with 720p the store gives up its frame for the next
   one (`released`); the display then briefly finds no frame. While connected and the last
   image is younger than 3 s it keeps that image instead of drawing "Waiting for image...".
+- **Display size:** image path (crop, scaling, centring, overlay) and the menus are laid out
+  from `lcd.width()`/`lcd.height()`; nothing assumes 320×240. A larger display gets larger
+  menu buttons and more networks in the camera choice (up to 8). Another board needs its own
+  `BOARD_*` block in `config.h` and LovyanGFX setup (the autodetect is limited to the CYD
+  variants). Limit: in "fit" JPEGDEC scales only by 1, ½, ¼ or ⅛.
 - **Overlay** (battery, fps): sits in the side border or in a 10 px strip that the image leaves
   out at 1:1, and is only redrawn when its text changes (no flicker).
 - **No orientation correction:** removed. Arbitrary angles need a frame buffer, and in 90°

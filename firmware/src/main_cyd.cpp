@@ -292,103 +292,113 @@ static void drawStatus(const char *text) {
 }
 
 // --- Menu ---------------------------------------------------------------------------
+// Laid out from the display size (lcd.width()/height() in UI orientation), so a larger
+// display gets larger buttons and more rows in the camera choice. Buttons are found by
+// their id, not by their position in the list.
+static const int GAP = 6;        // margin and space between buttons
+static const int ROW_H = 40;     // height of a row in the camera choice
+static const int MAX_NETS = 8;   // networks shown at most (as many as fit)
+
+enum ButtonId : int8_t { B_LED, B_ZOOM, B_CHOOSE, B_BRIGHT, B_BACK, B_RESCAN, B_PROTO, B_NET0 };
+
 struct Button {
   int16_t x, y, w, h;
-  char label[24];
+  int8_t id;
   bool enabled;
 };
-static Button buttons[8];  // menu: 5, camera choice: 4 networks + 3
+static Button buttons[B_NET0 + MAX_NETS];
 static int buttonCount = 0;
 
-static void addButton(int x, int y, int w, int h, const char *label, bool enabled = true) {
-  Button &b = buttons[buttonCount++];
-  b = {(int16_t)x, (int16_t)y, (int16_t)w, (int16_t)h, "", enabled};
-  strlcpy(b.label, label, sizeof(b.label));
+static void addButton(int id, int x, int y, int w, int h, const char *label, bool enabled = true) {
+  buttons[buttonCount++] = {(int16_t)x, (int16_t)y, (int16_t)w, (int16_t)h, (int8_t)id, enabled};
   lcd.fillRoundRect(x, y, w, h, 8, enabled ? 0x2945 : 0x1082);
   lcd.setFont(&fonts::DejaVu18);
   lcd.setTextDatum(middle_center);
   lcd.setTextColor(enabled ? TFT_WHITE : TFT_DARKGREY);
-  lcd.drawString(label, x + w / 2, y + h / 2);
+  char text[40];  // shortened to the button width (long SSIDs)
+  strlcpy(text, label, sizeof(text));
+  for (size_t n = strlen(text); n > 1 && lcd.textWidth(text) > w - 12;) text[--n] = 0;
+  lcd.drawString(text, x + w / 2, y + h / 2);
 }
 
-static int hitButton(int tx, int ty) {
+static int hitButton(int tx, int ty) {  // id of the touched button, -1 = none
   for (int i = 0; i < buttonCount; i++) {
     const Button &b = buttons[i];
-    if (b.enabled && tx >= b.x && tx < b.x + b.w && ty >= b.y && ty < b.y + b.h) return i;
+    if (b.enabled && tx >= b.x && tx < b.x + b.w && ty >= b.y && ty < b.y + b.h) return b.id;
   }
   return -1;
 }
 
-enum { B_LED, B_ZOOM, B_CHOOSE, B_BRIGHT, B_BACK };
-
-static void showMenu() {
-  screen = Screen::Menu;
+static void clearForScreen(Screen s) {
+  screen = s;
   screenSince = millis();
   statusShown[0] = 0;
   lastW = lastH = 0;
   lastRot = -1;
   lcd.fillScreen(TFT_BLACK);
   buttonCount = 0;
+}
+
+// Two columns, three rows: LED, zoom / camera, light / back over the whole width
+static void showMenu() {
+  clearForScreen(Screen::Menu);
+  int dw = lcd.width(), dh = lcd.height();
+  int w = (dw - 3 * GAP) / 2, h = (dh - 4 * GAP) / 3;
+  int x0 = GAP, x1 = 2 * GAP + w;
+  auto y = [&](int row) { return GAP + row * (h + GAP); };
   bool led = telemetry.ledSupported;
-  const int W = 152, H = 70, X0 = 6, X1 = 162, Y[] = {6, 84, 162};
   char ledLabel[24];
   if (!led) strlcpy(ledLabel, "LED -", sizeof(ledLabel));
   else if (telemetry.ledDimmable && telemetry.led == 1) snprintf(ledLabel, sizeof(ledLabel), "LED %d%%", (int)ledLevel);
   else strlcpy(ledLabel, telemetry.led == 1 ? "LED off" : "LED on", sizeof(ledLabel));
-  addButton(X0, Y[0], W, H, ledLabel, led);
-  addButton(X1, Y[0], W, H, zoomFull ? "Zoom: 1:1" : "Zoom: fit");
-  addButton(X0, Y[1], W, H, "Camera");
+  addButton(B_LED, x0, y(0), w, h, ledLabel, led);
+  addButton(B_ZOOM, x1, y(0), w, h, zoomFull ? "Zoom: 1:1" : "Zoom: fit");
+  addButton(B_CHOOSE, x0, y(1), w, h, "Camera");
   char bright[24];
   snprintf(bright, sizeof(bright), "Light %d%%", brightness * 100 / 255);
-  addButton(X1, Y[1], W, H, bright);
-  addButton(X0, Y[2], 308, H, "Back");
+  addButton(B_BRIGHT, x1, y(1), w, h, bright);
+  addButton(B_BACK, x0, y(2), dw - 2 * GAP, h, "Back");
 }
 
-static ScanEntry nets[5];
+static ScanEntry nets[MAX_NETS];
 static int netCount = 0;
 static int protoChoice = 0;  // index into PROTO_CHOICES for the camera choice
 
+static int barY() { return lcd.height() - GAP - ROW_H; }  // row with rescan, protocol, back
+
+// One row per open network (as many as fit above the bottom bar), then the bar
 static void showChoose() {
-  screen = Screen::Choose;
-  screenSince = millis();
-  statusShown[0] = 0;
-  lastW = lastH = 0;
-  lastRot = -1;
-  lcd.fillScreen(TFT_BLACK);
-  buttonCount = 0;
+  clearForScreen(Screen::Choose);
+  int dw = lcd.width();
+  int rows = min(MAX_NETS, (barY() - GAP) / (ROW_H + GAP));
   // Only open networks (no keyboard, no password), recognised cameras first
   ScanEntry all[16];
   int n = cameraNetworks(all, 16);
   netCount = 0;
   for (int pass = 0; pass < 2; pass++)
-    for (int i = 0; i < n && netCount < 4; i++)
+    for (int i = 0; i < n && netCount < rows; i++)
       if (all[i].open && (all[i].proto != CamProto::None) == (pass == 0)) nets[netCount++] = all[i];
   char cur[33];
   cameraCurrentSsid(cur, sizeof(cur));
   for (int i = 0; i < netCount; i++) {
-    char label[24];
-    snprintf(label, sizeof(label), "%s%.20s", strcmp(nets[i].ssid, cur) ? "" : "> ", nets[i].ssid);
-    addButton(6, 6 + i * 46, 308, 40, label, true);
+    char label[40];
+    snprintf(label, sizeof(label), "%s%s", strcmp(nets[i].ssid, cur) ? "" : "> ", nets[i].ssid);
+    addButton(B_NET0 + i, GAP, GAP + i * (ROW_H + GAP), dw - 2 * GAP, ROW_H, label);
   }
   if (!netCount) {
     lcd.setFont(&fonts::DejaVu18);
     lcd.setTextDatum(middle_center);
     lcd.setTextColor(TFT_LIGHTGREY);
-    lcd.drawString("No open networks", 160, 90);
+    lcd.drawString("No open networks", dw / 2, barY() / 2);
   }
-  // Fixed slots for "Rescan"/"Back"/protocol so the network indices stay 0..3
-  while (buttonCount < 4) buttons[buttonCount++] = {0, 0, 0, 0, "", false};
-  addButton(6, 194, 96, 40, "Rescan");
-  addButton(218, 194, 96, 40, "Back");
-  addButton(106, 194, 108, 40, protoKey(PROTO_CHOICES[protoChoice]));  // protocol for the next connect
+  int w = (dw - 4 * GAP) / 3;
+  addButton(B_RESCAN, GAP, barY(), w, ROW_H, "Rescan");
+  addButton(B_PROTO, 2 * GAP + w, barY(), w, ROW_H, protoKey(PROTO_CHOICES[protoChoice]));  // protocol for the next connect
+  addButton(B_BACK, 3 * GAP + 2 * w, barY(), w, ROW_H, "Back");
 }
 
 static void showLive() {
-  screen = Screen::Live;
-  statusShown[0] = 0;
-  lastW = lastH = 0;
-  lastRot = -1;
-  lcd.fillScreen(TFT_BLACK);
+  clearForScreen(Screen::Live);
 }
 
 static void onTouch(int tx, int ty) {
@@ -417,20 +427,20 @@ static void onTouch(int tx, int ty) {
       case B_BACK: return showLive();
     }
   } else if (screen == Screen::Choose) {
-    if (b >= 0 && b < netCount) {
-      cameraSelect(nets[b].ssid, "", PROTO_CHOICES[protoChoice]);
+    if (b >= B_NET0 && b < B_NET0 + netCount) {
+      cameraSelect(nets[b - B_NET0].ssid, "", PROTO_CHOICES[protoChoice]);
       return showLive();
     }
-    if (b == 4) {
+    if (b == B_RESCAN) {
       cameraRequestScan();
       screenSince = millis();
       lcd.setFont(&fonts::Font2);
       lcd.setTextDatum(middle_center);
       lcd.setTextColor(TFT_YELLOW, TFT_BLACK);
-      lcd.drawString(" scanning... ", 160, 182);
+      lcd.drawString(" scanning... ", lcd.width() / 2, barY() - 12);
     }
-    if (b == 5) return showLive();
-    if (b == 6) {  // next protocol (auto -> i4season -> jhcmd -> ...)
+    if (b == B_BACK) return showLive();
+    if (b == B_PROTO) {  // next protocol (auto -> i4season -> jhcmd -> ...)
       protoChoice = (protoChoice + 1) % PROTO_CHOICE_COUNT;
       return showChoose();
     }
