@@ -1,0 +1,92 @@
+name: Build firmware
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer commit on the same branch/PR cancels the running build of the older one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  KEEP_BUILDS: 5
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [zb-gw03, wt32-eth01, cyd]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # git describe for GIT_REV
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ matrix.env }}-${{ hashFiles('firmware/platformio.ini', 'firmware/sdkconfig.*') }}
+          restore-keys: pio-${{ matrix.env }}-
+
+      - run: pip install platformio
+
+      - name: Create secrets.h from template
+        run: cp firmware/include/secrets.example.h firmware/include/secrets.h
+
+      - name: Build
+        working-directory: firmware
+        run: pio run -e ${{ matrix.env }}
+
+      - name: Collect binaries
+        run: |
+          mkdir out
+          cp firmware/.pio/build/${{ matrix.env }}/firmware.bin out/${{ matrix.env }}-ota.bin
+          cp firmware/.pio/build/${{ matrix.env }}/firmware.factory.bin out/${{ matrix.env }}-factory.bin
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.env }}
+          path: out/*.bin
+          retention-days: 14
+
+  publish:
+    # Only builds of main are published; PRs just keep the artifacts.
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: firmware-*
+          path: out
+          merge-multiple: true
+
+      - name: Create release
+        run: |
+          tag="build-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}"
+          gh release create "$tag" out/*.bin \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Build ${GITHUB_RUN_NUMBER} (${GITHUB_SHA::7})" \
+            --notes "*-factory.bin: complete image for the first flash via USB (offset 0x0). *-ota.bin: update via /update or espota." \
+            --prerelease
+
+      - name: Delete old builds
+        run: |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | startswith("build-"))] | sort_by(.createdAt) | reverse | .['"$KEEP_BUILDS"':] | .[].tagName' |
+          while read -r tag; do
+            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+          done
