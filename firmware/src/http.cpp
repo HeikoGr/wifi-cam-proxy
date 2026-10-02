@@ -205,7 +205,10 @@ static bool readBody(Request &r, char *buf, size_t max) {
 // --- Video ------------------------------------------------------------------------
 // MJPEG stream: /live for the browser's live view, /stream for other programs. Same
 // data, switched separately; a viewer ends when its switch goes off.
-static void handleStream(Request &r, const std::atomic<bool> &on) {
+// /live is sent as application/octet-stream (same parts, same boundary): the web UI reads
+// it with fetch() and splits the parts itself, and Safari (iPhone) fails fetch() on
+// multipart/x-mixed-replace ("Load failed"). Programs get the real multipart type.
+static void handleStream(Request &r, const std::atomic<bool> &on, bool plain) {
   int fd = r.fd;
   if (!on) return sendText(fd, 503, "Service Unavailable", "Stream switched off in the settings");
   if (++streamClients > MAX_STREAM_CLIENTS) {
@@ -213,12 +216,17 @@ static void handleStream(Request &r, const std::atomic<bool> &on) {
     sendText(fd, 503, "Service Unavailable", "Too many viewers");
     return;
   }
-  static const char hdr[] =
+  static const char hdrMulti[] =
       "HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\n"
       "Cache-Control: no-cache\r\nConnection: close\r\n\r\n";
+  static const char hdrPlain[] =
+      "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n"
+      "Cache-Control: no-cache\r\nConnection: close\r\n\r\n";
+  const char *hdr = plain ? hdrPlain : hdrMulti;
+  const size_t hdrLen = plain ? sizeof(hdrPlain) - 1 : sizeof(hdrMulti) - 1;
   crumb("stream open (%d viewers)", (int)streamClients);
   const uint32_t me = ++streamGen;
-  if (sendAll(fd, hdr, sizeof(hdr) - 1)) {
+  if (sendAll(fd, hdr, hdrLen)) {
     uint32_t seq = 0;
     uint32_t lastCheck = millis();
     uint32_t lastSent = 0;   // for maxFps
@@ -436,14 +444,6 @@ static void handleRestart(Request &r) {
   ESP.restart();
 }
 
-// --- Settings ---------------------------------------------------------------------
-// POST /wifi/<bgn|bg|b> (mode towards the camera) or /wifi/tx/<8..84> (transmit power)
-static void handleWifiPost(Request &r) {
-  if (strncmp(r.path, "/wifi/tx/", 9) == 0) {  // transmit power, takes effect immediately
-    if (!wifiSetTxPower(atoi(r.path + 9)))
-      return sendText(r.fd, 400, "Bad Request", "Transmit power 8..84 (x 0.25 dBm)");
-    return sendText(r.fd, 200, "OK", "Transmit power set");
-  }
 // Factory reset: erase everything the device stored (NVS namespace: calibration, camera,
 // home Wi-Fi, switches) and restart with the defaults. Erased after the answer has gone
 // out and right before the restart, so no task writes a setting in between.
@@ -455,6 +455,14 @@ static void handleFactoryReset(Request &r) {
   ESP.restart();
 }
 
+// --- Settings ---------------------------------------------------------------------
+// POST /wifi/<bgn|bg|b> (mode towards the camera) or /wifi/tx/<8..84> (transmit power)
+static void handleWifiPost(Request &r) {
+  if (strncmp(r.path, "/wifi/tx/", 9) == 0) {  // transmit power, takes effect immediately
+    if (!wifiSetTxPower(atoi(r.path + 9)))
+      return sendText(r.fd, 400, "Bad Request", "Transmit power 8..84 (x 0.25 dBm)");
+    return sendText(r.fd, 200, "OK", "Transmit power set");
+  }
   if (!wifiSetMode(r.path + 6)) return sendText(r.fd, 400, "Bad Request", "Mode: bgn, bg or b");
   sendText(r.fd, 200, "OK", "Wi-Fi mode set, reconnecting");
 }
@@ -758,8 +766,8 @@ static const Route ROUTES[] = {
     {GET, "/style.css", EXACT, false, [](Request &r) { sendStatic(r.fd, "text/css; charset=utf-8", STYLE_CSS); }},
     {GET, "/app.js", EXACT, false, [](Request &r) { sendStatic(r.fd, "application/javascript; charset=utf-8", APP_JS); }},
     // video and state
-    {GET, "/live", EXACT, false, [](Request &r) { handleStream(r, liveOn); }},
-    {GET, "/stream", EXACT, false, [](Request &r) { handleStream(r, externalOn); }},
+    {GET, "/live", EXACT, false, [](Request &r) { handleStream(r, liveOn, true); }},
+    {GET, "/stream", EXACT, false, [](Request &r) { handleStream(r, externalOn, false); }},
     {GET, "/stream.m3u", EXACT, false, handleM3u},
     {GET, "/snapshot", EXACT, false, handleSnapshot},
     {GET, "/orientation", EXACT, false, handleOrientation},
@@ -788,6 +796,7 @@ static const Route ROUTES[] = {
     {POST, "/eth10/", PREFIX, true, handleEth10Post},
     {POST, "/update", EXACT, true, handleUpdate},
     {POST, "/restart", EXACT, true, handleRestart},
+    {POST, "/factory-reset", EXACT, true, handleFactoryReset},
     // diagnostics
     {GET, "/camdiag", EXACT, false, handleCamdiag},
     {GET, "/camdiag/raw", EXACT, false, handleCamdiagRaw},
@@ -796,7 +805,6 @@ static const Route ROUTES[] = {
     {POST, "/sniff/start", PREFIX, true, handleSniffStart},
     {POST, "/sniff/stop", EXACT, true, handleSniffStop},
 };
-    {POST, "/factory-reset", EXACT, true, handleFactoryReset},
 
 static void route(Request &r, Method method) {
   for (const Route &rt : ROUTES) {

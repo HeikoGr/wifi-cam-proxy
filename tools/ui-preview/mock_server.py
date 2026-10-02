@@ -239,7 +239,7 @@ def make_handler(pages: dict, frame: bytes, state: State):
                 on = self.server_state().external if path == "/stream" else self.server_state().live
                 if not on:
                     return self.send(503, "text/plain", b"Stream switched off in the settings")
-                return self.stream()
+                return self.stream(raw=path == "/live")
             if path == "/settings.json":
                 return self.json(state.settings_json())
             if path == "/stream.m3u":
@@ -304,9 +304,12 @@ def make_handler(pages: dict, frame: bytes, state: State):
                 return self.send(200, "text/plain", b"Saved (used in rescue mode)")
             self.send(200, "text/plain", b"OK (simulated)")
 
-        def stream(self):
+        def stream(self, raw=False):
+            # Like the firmware: /live (the web UI parses the parts itself) is sent as a
+            # plain octet stream, /stream (VLC, Home Assistant) as multipart. Safari's fetch()
+            # fails on multipart/x-mixed-replace ("Load failed").
             self.send_response(200)
-            self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+            self.send_header("Content-Type", "application/octet-stream" if raw else "multipart/x-mixed-replace; boundary=frame")
             self.send_header("Cache-Control", "no-cache")
             self.end_headers()
             try:

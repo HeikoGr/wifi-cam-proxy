@@ -190,7 +190,8 @@ document.addEventListener('DOMContentLoaded',()=>{showAuth();const a=$('auth');
 
 // MJPEG over fetch instead of <img src=stream>: every frame is shown as its own image,
 // so a stall or the end of the stream is noticed (an <img> just keeps the last frame).
-// Reconnects by itself. onState(text): '' = frames arrive, else why not. Returns stop().
+// The device sends /live as application/octet-stream: Safari fails fetch() on
+// multipart/x-mixed-replace. Reconnects by itself. onState(text): '' = frames arrive, else why not. Returns stop().
 function mjpeg(img,url,onState){
   let ctl=null,stopped=false,last=0,timer=0,prev='',wait=2000;
   const find=(b,from)=>{for(let i=from;i+3<b.length;i++)if(b[i]===13&&b[i+1]===10&&b[i+2]===13&&b[i+3]===10)return i;return -1};
@@ -795,12 +796,12 @@ is written; afterwards the device restarts.</p>
 <p><button id='go' class='primary'>Flash</button> <button id='rs'>Restart only</button></p>
 <progress id='p' max='100' value='0'></progress>
 <p id='msg'></p></div>
-</main><script src='/app.js'></script><script>
 <div class='card'><h2>Factory reset</h2>
 <p class='muted small'>Erases everything the device stored: orientation calibration, remembered camera,
 home Wi-Fi for rescue mode, switches and settings. Then it restarts with the defaults. The firmware
 stays.</p>
 <p><button id='fr' class='danger'>Erase settings and restart</button></p></div>
+</main><script src='/app.js'></script><script>
 async function status(){
   try{
     const s=await (await fetch('/status',{cache:'no-store'})).json();
@@ -837,12 +838,12 @@ $('rs').onclick=async()=>{
   const r=await post('/restart');
   $('msg').textContent=r.text;if(r.ok)waitReboot();
 };
-status();
 $('fr').onclick=async()=>{
   if(!confirm('Erase ALL stored settings (calibration, camera, home Wi-Fi, switches) and restart?'))return;
   const r=await post('/factory-reset');
   $('msg').textContent=r.text;if(r.ok)waitReboot();
 };
+status();
 </script></body></html>)HTML";
 
 // Choose camera: recognised cameras (SSID patterns) and all other networks from the scan
