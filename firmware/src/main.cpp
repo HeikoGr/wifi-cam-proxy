@@ -631,6 +631,8 @@ static void clientTask(void *arg) {
         putFrame(out, frame);
         out.flush();
       } else sendText(fd, 503, "Service Unavailable", "No frame received yet");
+    } else if (get && strcmp(path, "/style.css") == 0) {
+      sendResponse(fd, 200, "OK", "text/css; charset=utf-8", STYLE_CSS, sizeof(STYLE_CSS) - 1);
     } else if (get && strcmp(path, "/app.js") == 0) {
       sendResponse(fd, 200, "OK", "application/javascript; charset=utf-8", APP_JS,
                    sizeof(APP_JS) - 1);

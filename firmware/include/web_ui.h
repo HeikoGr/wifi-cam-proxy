@@ -1,20 +1,80 @@
 #pragma once
 
-// Web pages of the WiFi-Cam-Proxy (included by main.cpp only)
+// Web pages of the WiFi-Cam-Proxy (included by main.cpp only).
+// No external resources (fonts, CDNs): the device usually has no internet access.
 
-// --- Web pages ------------------------------------------------------------------
-#define PAGE_STYLE                                                                           \
-  "<meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>" \
-  "<style>body{background:#111;color:#ddd;font-family:sans-serif;text-align:center;"         \
-  "margin:0 16px}a{color:#8cf}img{max-width:95vw;max-height:80vh}img.round{border-radius:50%}"         \
-  ".box{max-width:480px;margin:0 auto;text-align:left}"                                      \
-  "button,input{font-size:1rem;margin:4px 0}progress{width:100%}"                            \
-  "pre{background:#1b1b1b;padding:8px;border-radius:6px;white-space:pre-wrap}"               \
-  ".warn{background:#5a3b00;padding:8px;border-radius:6px}</style>"
+// --- Shared head, style and navigation -------------------------------------------
+#define PAGE_STYLE                                                                              \
+  "<meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"  \
+  "<meta name='color-scheme' content='dark'><link rel='stylesheet' href='/style.css'>"
 
-// Shared orientation maths for start page and calibration (/app.js)
+// Shared style sheet (/style.css), loaded by every page
+static const char STYLE_CSS[] = R"CSS(
+:root{--bg:#0e1015;--card:#171a21;--card2:#1e222b;--line:#2a2f3a;--text:#e7e9ee;--muted:#8b93a5;--accent:#4c9dff;--ok:#3fb950;--warn:#d6a03a;--bad:#f2665c;--r:12px}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+header{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;padding:10px 16px;background:rgba(14,16,21,.92);border-bottom:1px solid var(--line);backdrop-filter:blur(6px)}
+.brand{font-weight:650;letter-spacing:.2px;display:flex;align-items:center;gap:8px}
+.brand i{width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok)}
+nav{display:flex;flex-wrap:wrap;gap:2px}
+nav a{color:var(--muted);padding:5px 10px;border-radius:8px}
+nav a:hover{color:var(--text);background:var(--card2);text-decoration:none}
+nav a.on{color:var(--text);background:var(--card2)}
+main{max-width:640px;margin:0 auto;padding:16px}
+main.wide{max-width:960px}
+h1{font-size:1.35rem;margin:6px 0 14px}
+h2{font-size:1.02rem;margin:0 0 10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px;margin:0 0 14px}
+.muted{color:var(--muted)}
+.small{font-size:.85rem}
+.ok{color:var(--ok)}
+.warnc{color:var(--warn)}
+.bad{color:var(--bad)}
+.note{border-radius:var(--r);padding:10px 14px;margin:0 0 14px;border:1px solid #6b5420;background:#2b2412}
+.btn,button{font:inherit;color:var(--text);background:var(--card2);border:1px solid var(--line);border-radius:9px;padding:7px 14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;margin:3px 2px}
+.btn:hover,button:hover{border-color:#3d4452;text-decoration:none}
+button:disabled{opacity:.45;cursor:default}
+.primary{background:var(--accent);border-color:var(--accent);color:#06101f;font-weight:600}
+input,select{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:8px 10px;margin:4px 0}
+input:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.field{width:100%}
+.switch{display:inline-flex;align-items:center;gap:8px;margin:3px 8px 3px 2px;cursor:pointer;white-space:nowrap}
+.switch input{appearance:none;width:34px;height:20px;margin:0;padding:0;border-radius:20px;background:var(--line);position:relative;cursor:pointer;border:0}
+.switch input:before{content:'';position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#cfd3dc;transition:.15s}
+.switch input:checked{background:var(--accent)}
+.switch input:checked:before{left:17px;background:#fff}
+progress{width:100%;height:8px;accent-color:var(--accent)}
+dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin:0}
+dl.kv dt{color:var(--muted)}
+dl.kv dd{margin:0;overflow-wrap:anywhere}
+table{border-collapse:collapse;width:100%}
+td,th{border-bottom:1px solid var(--line);padding:8px 6px;text-align:left}
+th{color:var(--muted);font-weight:500;font-size:.85rem}
+.badge{display:inline-block;padding:1px 9px;border-radius:20px;background:var(--card2);border:1px solid var(--line);font-size:.85rem;color:var(--muted)}
+img.round{border-radius:50%}
+code{background:var(--card2);padding:1px 5px;border-radius:5px}
+)CSS";
+
+#define PAGE_HEAD(title) "<!doctype html><html lang='en'><head><title>" title "</title>" PAGE_STYLE
+
+// Navigation; the link of the current page is highlighted
+#define PAGE_NAV                                                                                \
+  "<header><span class='brand'><i></i>WiFi-Cam</span><nav>"                                    \
+  "<a href='/'>Live</a><a href='/cameras'>Cameras</a>"                                          \
+  "<a href='/calibrate' id='calLink'>Calibrate</a><a href='/update'>Status</a>"                 \
+  "<a href='/wifi-setup'>Wi-Fi</a></nav></header>"                                              \
+  "<script>document.querySelectorAll('nav a').forEach(a=>{"                                    \
+  "if(a.getAttribute('href')===location.pathname)a.className='on'})</script>"
+
+// Shared helpers (/app.js): orientation maths for start page and calibration,
+// rendering of key/value lists
 static const char APP_JS[] = R"JS(
 const $=id=>document.getElementById(id);
+const esc=t=>String(t).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
+// key/value list: rows=[[key, html value, css class], ...], falsy rows are skipped
+function kv(el,rows){el.innerHTML=rows.filter(Boolean).map(r=>'<dt>'+r[0]+'</dt><dd'+(r[2]?' class='+r[2]:'')+'>'+r[1]+'</dd>').join('')}
 const norm=a=>((a%360)+540)%360-180;   // angle to -180..180
 const store={get(k,d){try{const v=localStorage.getItem(k);return v===null?d:JSON.parse(v)}catch(e){return d}},
   set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
@@ -93,27 +153,34 @@ function orientation(onSample,onState){
   };
   go();
 }
+// adds the OTA password header if one was entered
+function otaHeaders(h){h=h||{};const p=$('pw');if(p&&p.value)h['X-OTA-Password']=p.value;return h}
 )JS";
 
-static const char INDEX_HTML[] = "<!doctype html><html><head><title>WiFi-Cam</title>" PAGE_STYLE
-    R"HTML(<style>#wrap{display:inline-block;transition:transform .12s linear}
-#view{display:inline-block;overflow:hidden;line-height:0;cursor:zoom-in}#view.z{cursor:grab;touch-action:none}
-label{margin:0 8px;white-space:nowrap}.ctl{margin:8px 0}
-#ledBtn{font-size:1.2rem;padding:4px 10px;border-radius:6px;border:none;cursor:pointer;background:#333;color:#ddd}
-#ledBtn.on{background:#f5c518;color:#111}#cam{color:#888;font-size:.9rem}</style>
-</head><body><h3>Live</h3>
-<p id='choose' class='warn' hidden>Several cameras found. Please pick one under <a href='/cameras'>Choose camera</a>.</p>
-<p id='cam'>…</p>
-<div id='view' title='Double-click: zoom'><div id='wrap'><img id='img' src='/stream'></div></div>
-<div class='ctl'><button id='zoom' title='Zoom in, then drag the image with the mouse or a finger'>2&times;</button>
-<span id='ori'><label><input type='checkbox' id='on'> Correct orientation</label>
-<label><input type='checkbox' id='round'> Round</label>
+static const char INDEX_HTML[] = PAGE_HEAD("WiFi-Cam")
+    R"HTML(<style>
+#view{display:block;width:max-content;max-width:100%;margin:0 auto;overflow:hidden;line-height:0;
+ cursor:zoom-in;border-radius:var(--r);background:#000;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+#view.z{cursor:grab;touch-action:none}
+#wrap{display:inline-block;transition:transform .12s linear}
+#img{max-width:100%;max-height:72vh;min-width:240px;min-height:240px;background:#000}
+.camline{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;margin:0 0 12px}
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:4px;margin:14px 0 4px}
+#ledBtn.on{background:#f5c518;border-color:#f5c518;color:#111}
+</style></head><body>)HTML" PAGE_NAV R"HTML(<main class='wide'>
+<p id='choose' class='note' hidden>Several cameras found. Please pick one under <a href='/cameras'>Cameras</a>.</p>
+<div class='camline'><span id='cam' class='muted'>…</span><span id='bat' class='badge' hidden></span></div>
+<div id='view' title='Double-click: zoom'><div id='wrap'><img id='img' src='/stream' alt=''></div></div>
+<div class='toolbar'>
+<button id='zoom' title='Zoom in, then drag the image with the mouse or a finger'>2&times;</button>
+<span id='ori'><label class='switch'><input type='checkbox' id='on'>Correct orientation</label>
+<label class='switch'><input type='checkbox' id='round'>Round</label>
 <button id='zero'>Current position = up</button></span>
-<button id='ledBtn' title='Camera LED on/off' hidden>&#128261;</button></div>
-<p id='ledMsg' style='font-size:.8rem;color:#888'></p>
-<p><a href='/snapshot' download='snapshot.jpg'>Save snapshot</a> &middot;
-<a href='/cameras'>Choose camera</a> &middot;
-<a href='/calibrate' id='calLink'>Calibrate</a> &middot; <a href='/update'>Status &amp; update</a></p>
+<button id='ledBtn' title='Camera LED on/off' hidden>&#128161; LED</button>
+<a class='btn' href='/snapshot' download='snapshot.jpg'>&#128247; Snapshot</a>
+</div>
+<p id='ledMsg' class='muted small' style='text-align:center'></p>
+</main>
 <script src='/app.js'></script><script>
 let cal=Object.assign({},DEFAULT_CAL), hasOri=true;
 const view={z:1,px:0,py:0}, sm=new Smoother(), rot=rotator($('wrap'),view);
@@ -159,7 +226,8 @@ async function info(){
   const c=await camInfo(); if(!c)return;
   $('choose').hidden=c.state!=='choose';
   const name=c.ssid||(c.state==='choose'?'none chosen':'looking for camera…');
-  $('cam').textContent=[name,c.product,batteryText(c)].filter(Boolean).join(' · ');
+  $('cam').textContent=[name,c.product].filter(Boolean).join(' · ');
+  $('bat').hidden=c.battery<0;$('bat').textContent=batteryText(c);
   // orientation sensor: i4season reports it in the video header; before the first video
   // data (width 0) the otoscope view stays. MaxSee microscopes have none.
   if(c.state==='connected'){
@@ -176,76 +244,77 @@ loadCal().then(c=>{cal=c;apply()});
 orientation(a=>{if(sm.add(a,cal))apply()});
 </script></body></html>)HTML";
 
-static const char CALIBRATE_HTML[] = "<!doctype html><html><head><title>Orientation calibration</title>" PAGE_STYLE
+static const char CALIBRATE_HTML[] = PAGE_HEAD("Calibration")
     R"HTML(<style>
-.box{max-width:560px}.card{background:#1b1b1b;border-radius:8px;padding:10px 12px;margin:12px 0}
-.card h4{margin:4px 0 8px}.row{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;align-items:center}
-#wrap{transition:transform .12s linear}#wrap img{width:200px;height:200px}
-canvas{background:#111;border-radius:6px;max-width:100%}
-#cov{display:flex;gap:1px;margin:6px 0}#cov div{flex:1;height:10px;background:#333}#cov div.on{background:#4a4}
-.big{font-size:1.2rem;color:#fff;margin:6px 0}.ok{color:#6c6}.bad{color:#e86}
-table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #333;padding:3px 6px;text-align:right}
-input[type=range]{width:100%}
-</style></head><body><div class='box'>
-<h3>Calibrate orientation</h3>
+.row{display:flex;flex-wrap:wrap;gap:16px;justify-content:center;align-items:center}
+#wrap{transition:transform .12s linear}#wrap img{width:200px;height:200px;background:#000;border-radius:var(--r)}
+#wrap img.round{border-radius:50%}
+#live[src='']{visibility:hidden}
+canvas{background:var(--bg);border-radius:var(--r);max-width:100%;display:block;margin:10px auto}
+#cov{display:flex;gap:2px;margin:10px 0}#cov div{flex:1;height:10px;border-radius:2px;background:var(--line)}
+#cov div.on{background:var(--ok)}
+.big{font-size:1.1rem;margin:8px 0}
+td,th{text-align:right}
+input[type=range]{width:100%;accent-color:var(--accent);padding:0;border:0}
+</style></head><body>)HTML" PAGE_NAV R"HTML(<main>
+<h1>Calibrate orientation</h1>
 <p id='conn' class='bad'>Waiting for sensor data… (otoscope on and connected?)</p>
 
-<div class='card'><h4>Live</h4>
+<div class='card'><h2>Live</h2>
 <div class='row'>
  <div id='wrap'><img id='live' alt=''></div>
  <svg id='dial' width='200' height='200' viewBox='-100 -100 200 200'>
-  <circle r='90' fill='none' stroke='#555' stroke-width='2'/>
-  <g stroke='#777' stroke-width='2'><line y1='-90' y2='-78'/><line x1='90' x2='78'/><line y1='90' y2='78'/><line x1='-90' x2='-78'/></g>
-  <text y='-62' fill='#888' text-anchor='middle' font-size='14'>up</text>
-  <line id='needle' y2='-80' stroke='#8cf' stroke-width='5' stroke-linecap='round'/>
-  <circle r='6' fill='#8cf'/>
+  <circle r='90' fill='none' stroke='#2a2f3a' stroke-width='2'/>
+  <g stroke='#3d4452' stroke-width='2'><line y1='-90' y2='-78'/><line x1='90' x2='78'/><line y1='90' y2='78'/><line x1='-90' x2='-78'/></g>
+  <text y='-62' fill='#8b93a5' text-anchor='middle' font-size='14'>up</text>
+  <line id='needle' y2='-80' stroke='#4c9dff' stroke-width='5' stroke-linecap='round'/>
+  <circle r='6' fill='#4c9dff'/>
  </svg>
 </div>
-<label><input type='checkbox' id='liveOn'> Show live image</label>
-<pre id='vals'>–</pre>
-<p>The needle shows where the side is that was up at the zero point. The image on the
-left is rotated with the calibration you are editing here.</p>
+<label class='switch'><input type='checkbox' id='liveOn'>Show live image</label>
+<dl class='kv small' id='vals'><dt>raw</dt><dd>–</dd></dl>
+<p class='muted small'>The needle shows where the side is that was up at the zero point. The
+image on the left is rotated with the calibration you are editing here.</p>
 </div>
 
-<div class='card'><h4>1. Record a circle</h4>
+<div class='card'><h2>1. Record a circle</h2>
 <p>Hold the probe as level as possible and <b>slowly turn it once all the way around its
 long axis</b>. The green fields show which angles have been covered. The live image is off
 during recording so the Wi-Fi only has to carry sensor data.</p>
-<button id='recBtn'>Start recording</button>
+<button id='recBtn' class='primary'>Start recording</button>
 <div id='cov'></div>
 <canvas id='plot' width='260' height='260'></canvas>
-<p id='recStat'></p>
+<p id='recStat' class='small'></p>
 <p id='fitRes'></p>
 <button id='fitUse' disabled>Apply result</button>
 </div>
 
-<div class='card'><h4>2. Check quarter turns</h4>
+<div class='card'><h2>2. Check quarter turns</h2>
 <p>Mark one side of the probe (e.g. the button). Then step by step <b>one quarter turn
 further each time, always in the same direction</b>, and at each step hold still and
 click “Capture”.</p>
 <p class='big' id='qStep'></p>
-<button id='qTake'>Capture</button> <button id='qReset'>Start over</button>
+<button id='qTake' class='primary'>Capture</button> <button id='qReset'>Start over</button>
 <table id='qTab'></table>
 <p id='qRes'></p>
 <button id='qUse' disabled>Apply as correction</button>
 <button id='qClear'>Remove correction</button>
 </div>
 
-<div class='card'><h4>3. Zero point and smoothing</h4>
+<div class='card'><h2>3. Zero point and smoothing</h2>
 <p>The image is always rotated by −90° (mounting of the camera). The zero point is the
 normal position of the probe in which no additional correction is needed (default 0°).
 For fine-tuning, hold the probe so the image is the right way up, then:</p>
 <button id='zero'>Current position = up</button>
-<p>Smoothing: <span id='smV'></span> (left = direct/jittery, right = calm/sluggish)</p>
+<p>Smoothing: <b id='smV'></b> <span class='muted small'>(left = direct/jittery, right = calm/sluggish)</span></p>
 <input type='range' id='sm' min='0' max='0.9' step='0.05'>
 </div>
 
-<div class='card'><h4>Save</h4>
-<button id='save'>Save on device</button> <button id='reset'>Reset everything</button>
+<div class='card'><h2>Save</h2>
+<button id='save' class='primary'>Save on device</button> <button id='reset'>Reset everything</button>
 <p id='msg'></p>
-<p><a href='/'>To the live image</a> &middot; <a href='/update'>Status &amp; update</a></p>
 </div>
-</div>
+</main>
 <script src='/app.js'></script><script>
 let W=Object.assign({},DEFAULT_CAL), dirty=false;
 const sm=new Smoother(), rot=rotator($('wrap'));
@@ -273,10 +342,10 @@ function render(){
   }else rot(W.base);
   if(last){
     const g=Math.hypot(last.x,last.y,last.z);
-    $('vals').textContent='raw  x '+last.x+'  y '+last.y+'  z '+last.z+'  |g| '+g.toFixed(0)+
-      '\nSensor angle '+sensorAngle(last.x,last.y,W).toFixed(1)+'°'+
-      '   corrected '+correct(sensorAngle(last.x,last.y,W),W).toFixed(1)+'°'+
-      '\nOrientation (to zero point) '+(sm.have?lageAngle(sm.x,sm.y,W).toFixed(1):'–')+'°';
+    kv($('vals'),[['raw','x '+last.x+' · y '+last.y+' · z '+last.z+' · |g| '+g.toFixed(0)],
+      ['sensor angle',sensorAngle(last.x,last.y,W).toFixed(1)+'°'],
+      ['corrected',correct(sensorAngle(last.x,last.y,W),W).toFixed(1)+'°'],
+      ['orientation',(sm.have?lageAngle(sm.x,sm.y,W).toFixed(1):'–')+'° (to zero point)']]);
   }
   $('smV').textContent=W.smooth.toFixed(2); $('sm').value=W.smooth;
   renderQ();
@@ -302,11 +371,11 @@ function coverage(){
 function drawPlot(){
   const cv=$('plot'),g=cv.getContext('2d'),S=cv.width/2,k=S/150;
   g.clearRect(0,0,cv.width,cv.height);
-  g.strokeStyle='#333';g.beginPath();g.moveTo(0,S);g.lineTo(2*S,S);g.moveTo(S,0);g.lineTo(S,2*S);g.stroke();
-  g.fillStyle='#8cf';
+  g.strokeStyle='#2a2f3a';g.beginPath();g.moveTo(0,S);g.lineTo(2*S,S);g.moveTo(S,0);g.lineTo(S,2*S);g.stroke();
+  g.fillStyle='#4c9dff';
   for(const[x,y]of pts)g.fillRect(S+x*k-1,S-y*k-1,2,2);
   if(fit){
-    g.strokeStyle='#6c6';g.lineWidth=2;g.beginPath();
+    g.strokeStyle='#3fb950';g.lineWidth=2;g.beginPath();
     g.ellipse(S+fit.ox*k,S-fit.oy*k,fit.sx*k,fit.sy*k,0,0,2*Math.PI);g.stroke();g.lineWidth=1;
   }
   const n=coverage();
@@ -417,56 +486,64 @@ loadCal().then(c=>{W=c;render();drawPlot()});
 render();drawPlot();
 </script></body></html>)HTML";
 
-static const char UPDATE_HTML[] = "<!doctype html><html><head><title>WiFi-Cam update</title>"
-    PAGE_STYLE R"(</head><body><div class='box'>
-<h3>WiFi-Cam-Proxy</h3>
-<p id='rescue' class='warn' hidden>Rescue mode: Ethernet has no IP, Wi-Fi is on the home
+static const char UPDATE_HTML[] = PAGE_HEAD("Status & update")
+    R"HTML(</head><body>)HTML" PAGE_NAV R"HTML(<main>
+<h1>Status &amp; update</h1>
+<p id='rescue' class='note' hidden><b>Rescue mode:</b> Ethernet has no IP, Wi-Fi is on the home
 network or the own access point instead of the camera. When Ethernet comes back, the
 device restarts by itself. <a href='/wifi-setup'>Set up home Wi-Fi</a></p>
-<pre id='st'>loading status…</pre>
-<h4>Wi-Fi to the camera</h4>
-<p>Takes effect immediately, the device briefly reconnects. Afterwards compare the lost
-packets above.</p>
+<div class='card'><h2>Device</h2><dl class='kv' id='st'><dt>Status</dt><dd>loading…</dd></dl></div>
+<div class='card'><h2>Video</h2><dl class='kv' id='vid'></dl></div>
+<div class='card'><h2>Wi-Fi to the camera</h2>
+<p class='muted small'>Takes effect immediately, the device briefly reconnects. Afterwards compare
+the lost packets above.</p>
 <p><button class='wm' data-m='bgn'>b/g/n</button> fast, aggregates packets<br>
 <button class='wm' data-m='bg'>b/g</button> every packet on its own (default)<br>
 <button class='wm' data-m='b'>b only</button> slow, most robust with a weak signal</p>
-<h4>Ethernet</h4>
+</div>
+<div class='card'><h2>Ethernet</h2>
 <p><button class='eth' data-v='1'>10 Mbit</button> required on the ZB-GW03 (Wi-Fi disturbs the clock otherwise)<br>
 <button class='eth' data-v='0'>100 Mbit</button> for boards with their own oscillator (WT32-ETH01)</p>
-<h4>Firmware update</h4>
-<p>Choose the file <code>.pio/build/&lt;board&gt;/firmware.bin</code>, e.g. <code>zb-gw03</code>
-(not <code>firmware.factory.bin</code>).</p>
-<input type='file' id='f' accept='.bin'><br>
-<input type='password' id='pw' placeholder='OTA password (if set)'><br>
-<button id='go'>Flash</button> <button id='rs'>Restart</button>
+</div>
+<div class='card'><h2>Firmware update</h2>
+<p class='muted small'>Choose the file <code>.pio/build/&lt;board&gt;/firmware.bin</code>, e.g.
+<code>zb-gw03</code> (not <code>firmware.factory.bin</code>).</p>
+<input type='file' id='f' accept='.bin' class='field'>
+<input type='password' id='pw' placeholder='OTA password (if set)' class='field'>
+<p><button id='go' class='primary'>Flash</button> <button id='rs'>Restart</button></p>
 <progress id='p' max='100' value='0'></progress>
 <p id='msg'></p>
-<p><a href='/'>To the live image</a> &middot; <a href='/cameras'>Choose camera</a> &middot;
-<a href='/wifi-setup'>Home Wi-Fi (rescue)</a></p>
-</div><script>
-const $=id=>document.getElementById(id);
+</div>
+</main><script src='/app.js'></script><script>
 async function status(){
   try{
     const s=await (await fetch('/status',{cache:'no-store'})).json();
     $('rescue').hidden=s.mode!=='rescue';
-    $('st').textContent=
-      'Version:   '+s.version+'\nReset:     '+s.reset_reason+' (boot #'+s.boot_count+')'+'\nMode:      '+s.mode+
-      '\nEthernet:  '+(s.eth_ip||('no IP, '+(!s.eth_begin?'init failed':s.eth_link?'link up':'no link')))+
-      (s.eth_speed?', '+s.eth_speed+' Mbit':'')+(s.eth10?' (10 Mbit set)':'')+
-      (s.ap?'\nSetup AP:  '+s.ap+' (192.168.4.1)':'')+
-      '\nWi-Fi:     '+(s.wifi_connected?s.wifi_ssid+' ('+s.wifi_rssi+' dBm)':'disconnected')+', mode '+s.wifi_mode+
-      '\nCamera:    '+(s.cam_proto||'none')+(s.battery>=0?', battery '+s.battery+' %':'')+
-      '\nVideo:     '+s.fps.toFixed(1)+' fps, '+s.frames+' frames, '+s.dropped+' dropped'+
-      '\n           (memory '+s.drop_nomem+', too large '+s.drop_toobig+', incomplete '+s.drop_incomplete+
-      ', packets lost '+s.packets_lost+', shown damaged '+s.damaged+', largest frame '+s.max_frame+' B)'+
-      '\nStalls:    '+s.stalls_loss+' after packet loss, '+s.stalls_clean+' without'+
-      (s.clean_stall_times.length?' (at '+s.clean_stall_times.join(', ')+' s)':'')+
-      ' · keepalives '+s.keepalives+
-      '\nViewers:   '+s.stream_clients+'\nHeap:      '+s.free_heap+' bytes free'+
-      '\nUptime:    '+s.uptime_s+' s'+
-      (s.last_crash?'\nCrash:     '+s.last_crash:'');
+    const eth=s.eth_ip?esc(s.eth_ip)+(s.eth_speed?' · '+s.eth_speed+' Mbit':'')+(s.eth10?' (10 Mbit set)':'')
+      :'no IP, '+(!s.eth_begin?'init failed':s.eth_link?'link up':'no link');
+    kv($('st'),[
+      ['Mode',s.mode==='rescue'?'rescue':'normal',s.mode==='rescue'?'warnc':'ok'],
+      ['Ethernet',eth,s.eth_ip?'':'bad'],
+      s.ap&&['Setup AP',esc(s.ap)+' (192.168.4.1)'],
+      ['Wi-Fi',(s.wifi_connected?esc(s.wifi_ssid)+' · '+s.wifi_rssi+' dBm':'disconnected')+' · mode '+s.wifi_mode,
+        !s.wifi_connected?'bad':s.wifi_rssi<-70?'warnc':''],
+      ['Camera',(s.cam_proto||'none')+(s.battery>=0?' · battery '+s.battery+' %':'')],
+      ['Heap',s.free_heap+' bytes free (min '+s.min_heap+')'],
+      ['Uptime',Math.floor(s.uptime_s/3600)+' h '+Math.floor(s.uptime_s%3600/60)+' min'],
+      ['Version',esc(s.version)],
+      ['Reset',esc(s.reset_reason)+' (boot #'+s.boot_count+')'],
+      s.last_crash&&['Crash',esc(s.last_crash),'bad']]);
+    kv($('vid'),[
+      ['Frame rate',s.fps.toFixed(1)+' fps',s.fps<5?'warnc':'ok'],
+      ['Frames',s.frames+' received, '+s.dropped+' dropped'],
+      ['Dropped',s.drop_nomem+' memory · '+s.drop_toobig+' too large · '+s.drop_incomplete+' incomplete'],
+      ['Packets lost',s.packets_lost+' (shown damaged: '+s.damaged+')'],
+      ['Largest frame',(s.max_frame/1024).toFixed(1)+' KB'],
+      ['Stalls',s.stalls_loss+' after packet loss, '+s.stalls_clean+' without'+
+        (s.clean_stall_times.length?' (at '+s.clean_stall_times.join(', ')+' s)':'')],
+      ['Viewers',s.stream_clients]]);
     return true;
-  }catch(e){$('st').textContent='not reachable';return false}
+  }catch(e){kv($('st'),[['Status','not reachable','bad']]);return false}
 }
 function waitReboot(){
   let n=0;
@@ -490,74 +567,73 @@ $('go').onclick=async()=>{
   x.send(file);
 };
 $('rs').onclick=async()=>{
-  const h={};if($('pw').value)h['X-OTA-Password']=$('pw').value;
-  const r=await fetch('/restart',{method:'POST',headers:h});
+  const r=await fetch('/restart',{method:'POST',headers:otaHeaders()});
   $('msg').textContent=r.status+': '+await r.text();if(r.ok)waitReboot();
 };
 document.querySelectorAll('.eth').forEach(b=>b.onclick=async()=>{
-  const h={};if($('pw').value)h['X-OTA-Password']=$('pw').value;
-  const r=await fetch('/eth10/'+b.dataset.v,{method:'POST',headers:h});
+  const r=await fetch('/eth10/'+b.dataset.v,{method:'POST',headers:otaHeaders()});
   $('msg').textContent=r.status+': '+await r.text();
 });
 document.querySelectorAll('.wm').forEach(b=>b.onclick=async()=>{
-  const h={};if($('pw').value)h['X-OTA-Password']=$('pw').value;
-  const r=await fetch('/wifi/'+b.dataset.m,{method:'POST',headers:h});
+  const r=await fetch('/wifi/'+b.dataset.m,{method:'POST',headers:otaHeaders()});
   $('msg').textContent=r.status+': '+await r.text();status();
 });
 status();setInterval(status,3000);
-</script></body></html>)";
+</script></body></html>)HTML";
 
 // Choose camera: recognised cameras (SSID patterns) and all other networks from the scan
-static const char CAMERAS_HTML[] = "<!doctype html><html><head><title>Choose camera</title>" PAGE_STYLE
-    R"HTML(<style>table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #333;padding:4px 6px;text-align:left}
-.cur{color:#6c6}.dim{color:#777}select,input[type=password]{font-size:1rem}</style>
-</head><body><div class='box'>
-<h3>Choose camera</h3>
-<pre id='st'>loading…</pre>
-<p>Cameras are recognised by their Wi-Fi name. The device remembers the chosen camera
-and reconnects to it at startup. If it is off, the device takes another recognised
-camera if exactly one is in range.</p>
-<p><button id='scan'>Rescan</button> <button id='forget'>Clear selection (automatic)</button></p>
-<p class='dim'>Scanning while the image is running makes it stutter briefly.</p>
-<h4>Recognised cameras</h4><table id='rec'></table>
-<h4>Other networks</h4>
-<p class='dim'>Unknown camera? Try it here with protocol “automatic” (192.168.29.1 →
+static const char CAMERAS_HTML[] = PAGE_HEAD("Cameras")
+    R"HTML(<style>.cur{color:var(--ok);font-weight:600}td:last-child{text-align:right}
+.sig{display:inline-flex;gap:2px;align-items:flex-end;height:12px;margin-right:6px;vertical-align:-1px}
+.sig i{width:3px;background:var(--line);border-radius:1px}.sig i.on{background:var(--accent)}</style>
+</head><body>)HTML" PAGE_NAV R"HTML(<main>
+<h1>Cameras</h1>
+<div class='card'><dl class='kv' id='st'><dt>State</dt><dd>loading…</dd></dl></div>
+<div class='card'><h2>Recognised cameras</h2><table id='rec'></table>
+<p><button id='scan'>&#8635; Rescan</button> <button id='forget'>Clear selection (automatic)</button></p>
+<p class='muted small'>The device remembers the chosen camera and reconnects to it at startup. If it
+is off, the device takes another recognised camera if exactly one is in range. Scanning while the
+image is running makes it stutter briefly.</p></div>
+<div class='card'><h2>Other networks</h2>
+<p class='muted small'>Unknown camera? Try it here with protocol “automatic” (192.168.29.1 →
 MaxSee, otherwise i4season).</p>
-<table id='oth'></table>
+<table id='oth'></table></div>
+<div class='card'><h2>Connection options</h2>
 <p>Protocol <select id='proto'><option value='auto'>automatic</option>
 <option value='i4season'>i4season (Soulear, MS5, MAX-VIEW)</option>
 <option value='jhcmd'>MaxSee/JoyHonest (JHCMD)</option></select></p>
-<p><input type='password' id='wpw' placeholder='Wi-Fi password of the camera (usually empty)'><br>
-<input type='password' id='pw' placeholder='OTA password (if set)'></p>
-<p id='msg'></p>
-<p><a href='/'>To the live image</a> &middot; <a href='/update'>Status &amp; update</a></p>
-</div><script src='/app.js'></script><script>
+<input type='password' id='wpw' class='field' placeholder='Wi-Fi password of the camera (usually empty)'>
+<input type='password' id='pw' class='field' placeholder='OTA password (if set)'>
+<p id='msg'></p></div>
+</main><script src='/app.js'></script><script>
 const STATE={connected:'connected',connecting:'connecting…',scanning:'scanning…',choose:'several found, please choose',searching:'no camera found, still searching',restart:'reconnecting…'};
-const esc=t=>String(t).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
+// signal strength as 4 bars
+function sig(r){const n=r>-55?4:r>-65?3:r>-75?2:1;let h='<span class=sig title="'+r+' dBm">';
+  for(let i=1;i<=4;i++)h+='<i class='+(i<=n?'on':'')+' style="height:'+(i*3)+'px"></i>';return h+'</span>'}
 function row(n,c){
   const cur=n.ssid===c.ssid&&c.state==='connected';
-  return '<tr><td class='+(cur?'cur':'')+'>'+esc(n.ssid)+(n.ssid===c.preferred?' ★':'')+'</td><td>'+n.rssi+' dBm</td><td>'+
-    (n.open?'open':'password')+'</td><td>'+(n.proto||'–')+'</td><td>'+
-    (cur?'active':'<button data-s="'+esc(n.ssid)+'">Connect</button>')+'</td></tr>';
+  return '<tr><td class='+(cur?'cur':'')+'>'+esc(n.ssid)+(n.ssid===c.preferred?' ★':'')+'</td><td>'+sig(n.rssi)+
+    '<span class="muted small">'+n.rssi+' dBm</span></td><td class="muted small">'+(n.open?'open':'&#128274;')+
+    '</td><td><span class=badge>'+(n.proto||'–')+'</span></td><td>'+
+    (cur?'<span class=ok>active</span>':'<button data-s="'+esc(n.ssid)+'">Connect</button>')+'</td></tr>';
 }
 async function load(){
   const c=await camInfo();
-  if(!c){$('st').textContent='not reachable';return}
-  $('st').textContent='State:    '+(STATE[c.state]||c.state)+
-    '\nCamera:   '+(c.ssid||'–')+(c.proto?' ('+c.proto+')':'')+
-    '\nDevice:   '+([c.vendor,c.product,c.firmware].filter(Boolean).join(' ')||'–')+
-    (c.width?'\nImage:    '+c.width+'×'+c.height+' (as reported by the camera)':'')+
-    (c.battery>=0?'\nBattery:  '+c.battery+' %':'')+
-    '\nRemembered: '+(c.preferred||'– (automatic)')+
-    '\nScan:     '+(c.scan_age_s<0?'none yet':c.scan_age_s+' s ago');
+  if(!c){kv($('st'),[['State','not reachable','bad']]);return}
+  kv($('st'),[['State',STATE[c.state]||c.state,c.state==='connected'?'ok':c.state==='choose'?'warnc':''],
+    ['Camera',(c.ssid?esc(c.ssid):'–')+(c.proto?' <span class=badge>'+c.proto+'</span>':'')],
+    ['Device',esc([c.vendor,c.product,c.firmware].filter(Boolean).join(' ')||'–')],
+    c.width&&['Image',c.width+'×'+c.height+' <span class="muted small">(as reported by the camera)</span>'],
+    c.battery>=0&&['Battery',c.battery+' %'],
+    ['Remembered',c.preferred?esc(c.preferred):'– (automatic)'],
+    ['Last scan',c.scan_age_s<0?'none yet':c.scan_age_s+' s ago']]);
   const rec=c.networks.filter(n=>n.proto), oth=c.networks.filter(n=>!n.proto);
-  $('rec').innerHTML=rec.length?rec.map(n=>row(n,c)).join(''):'<tr><td class=dim>none</td></tr>';
-  $('oth').innerHTML=oth.map(n=>row(n,c)).join('');
+  $('rec').innerHTML=rec.length?rec.map(n=>row(n,c)).join(''):'<tr><td class=muted>none in range</td></tr>';
+  $('oth').innerHTML=oth.map(n=>row(n,c)).join('')||'<tr><td class=muted>none</td></tr>';
   document.querySelectorAll('button[data-s]').forEach(b=>b.onclick=()=>select(b.dataset.s));
 }
 async function post(url,body){
-  const h={'Content-Type':'application/x-www-form-urlencoded'};if($('pw').value)h['X-OTA-Password']=$('pw').value;
-  const r=await fetch(url,{method:'POST',headers:h,body});
+  const r=await fetch(url,{method:'POST',headers:otaHeaders({'Content-Type':'application/x-www-form-urlencoded'}),body});
   $('msg').textContent=r.status+': '+await r.text();setTimeout(load,1500);
 }
 function select(ssid){post('/cameras/select',new URLSearchParams({ssid,pass:$('wpw').value,proto:$('proto').value}).toString())}
@@ -567,46 +643,43 @@ load();setInterval(load,4000);
 </script></body></html>)HTML";
 
 // Set up the home Wi-Fi for rescue mode (also via the own access point)
-static const char WIFI_SETUP_HTML[] = "<!doctype html><html><head><title>Wi-Fi setup</title>" PAGE_STYLE
-    R"HTML(<style>table{border-collapse:collapse;width:100%}td{border-bottom:1px solid #333;padding:6px}
-tr.n{cursor:pointer}tr.n:hover{background:#222}.dim{color:#777}input{width:100%;box-sizing:border-box}</style>
-</head><body><div class='box'>
-<h3>Set up home Wi-Fi</h3>
-<pre id='st'>loading…</pre>
-<p>If Ethernet has no connection, the device switches to this Wi-Fi so the web UI and
+static const char WIFI_SETUP_HTML[] = PAGE_HEAD("Wi-Fi setup")
+    R"HTML(<style>tr.n{cursor:pointer}tr.n:hover td{background:var(--card2)}</style>
+</head><body>)HTML" PAGE_NAV R"HTML(<main>
+<h1>Home Wi-Fi</h1>
+<div class='card'><dl class='kv' id='st'><dt>Mode</dt><dd>loading…</dd></dl>
+<p class='muted small'>If Ethernet has no connection, the device switches to this Wi-Fi so the web UI and
 updates stay reachable. If that fails too, it opens its own access point
-(<code>WiFi-Cam-…</code>), through which you get here.</p>
-<h4>Networks in range</h4>
-<p><button id='scan'>Scan</button> <span id='scanMsg' class='dim'></span></p>
-<table id='nets'></table>
-<p><input id='ssid' placeholder='Wi-Fi name (SSID)' maxlength='32'></p>
-<p><input type='password' id='pass' placeholder='Wi-Fi password' maxlength='64'></p>
-<p><input type='password' id='pw' placeholder='OTA password (if set)'></p>
-<p><button id='save'>Save and connect</button> <button id='clear'>Delete</button></p>
-<p id='msg'></p>
-<p><a href='/'>To the live image</a> &middot; <a href='/update'>Status &amp; update</a></p>
-</div><script>
-const $=id=>document.getElementById(id);
-const esc=t=>String(t).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
+(<code>WiFi-Cam-…</code>), through which you get here.</p></div>
+<div class='card'><h2>Networks in range</h2>
+<p><button id='scan'>&#8635; Scan</button> <span id='scanMsg' class='muted small'></span></p>
+<table id='nets'></table></div>
+<div class='card'><h2>Credentials</h2>
+<input id='ssid' class='field' placeholder='Wi-Fi name (SSID)' maxlength='32'>
+<input type='password' id='pass' class='field' placeholder='Wi-Fi password' maxlength='64'>
+<input type='password' id='pw' class='field' placeholder='OTA password (if set)'>
+<p><button id='save' class='primary'>Save and connect</button> <button id='clear'>Delete</button></p>
+<p id='msg'></p></div>
+</main><script src='/app.js'></script><script>
 async function load(){
   try{
     const s=await (await fetch('/status',{cache:'no-store'})).json();
-    $('st').textContent='Mode:      '+(s.mode==='rescue'?'rescue':'normal (Ethernet '+(s.eth_ip||'without IP')+')')+
-      '\nHome Wi-Fi: '+(s.home_ssid||'– not set up')+
-      (s.mode==='rescue'?'\nWi-Fi:     '+(s.wifi_connected?s.wifi_ssid+', IP '+s.wifi_ip:'not connected'):'')+
-      (s.ap?'\nSetup AP:  '+s.ap+' (192.168.4.1)':'');
-  }catch(e){$('st').textContent='not reachable'}
+    kv($('st'),[['Mode',s.mode==='rescue'?'rescue':'normal (Ethernet '+(s.eth_ip?esc(s.eth_ip):'without IP')+')',s.mode==='rescue'?'warnc':'ok'],
+      ['Home Wi-Fi',s.home_ssid?esc(s.home_ssid):'– not set up'],
+      s.mode==='rescue'&&['Wi-Fi',s.wifi_connected?esc(s.wifi_ssid)+', IP '+esc(s.wifi_ip):'not connected'],
+      s.ap&&['Setup AP',esc(s.ap)+' (192.168.4.1)']]);
+  }catch(e){kv($('st'),[['Mode','not reachable','bad']])}
   try{
     const c=await (await fetch('/cameras.json',{cache:'no-store'})).json();
-    $('nets').innerHTML=c.networks.map(n=>'<tr class=n data-s="'+esc(n.ssid)+'"><td>'+esc(n.ssid)+'</td><td>'+n.rssi+
-      ' dBm</td><td>'+(n.open?'open':'&#128274;')+'</td></tr>').join('')||'<tr><td class=dim>no scan yet</td></tr>';
+    $('nets').innerHTML=c.networks.map(n=>'<tr class=n data-s="'+esc(n.ssid)+'"><td>'+esc(n.ssid)+'</td><td class="muted small">'+n.rssi+
+      ' dBm</td><td>'+(n.open?'open':'&#128274;')+'</td></tr>').join('')||'<tr><td class=muted>no scan yet</td></tr>';
     document.querySelectorAll('tr.n').forEach(r=>r.onclick=()=>{$('ssid').value=r.dataset.s;$('pass').focus()});
   }catch(e){}
 }
 async function save(ssid,pass){
-  const h={'Content-Type':'application/x-www-form-urlencoded'};if($('pw').value)h['X-OTA-Password']=$('pw').value;
   try{
-    const r=await fetch('/wifi-setup',{method:'POST',headers:h,body:new URLSearchParams({ssid,pass}).toString()});
+    const r=await fetch('/wifi-setup',{method:'POST',headers:otaHeaders({'Content-Type':'application/x-www-form-urlencoded'}),
+      body:new URLSearchParams({ssid,pass}).toString()});
     $('msg').textContent=r.status+': '+await r.text();
   }catch(e){$('msg').textContent='Connection lost - the device may be switching Wi-Fi.'}
   setTimeout(load,3000);

@@ -24,6 +24,21 @@ Wi-Fi and provides the image in the home network over Ethernet:
 - **Rescue mode** without Ethernet: home Wi-Fi or own access point `WiFi-Cam-XXXX` with a setup
   page (captive portal, like the Arduino WiFiManager)
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/live.png" width="62%" alt="Live view with battery, zoom, orientation correction and LED">
+  <img src="docs/screenshots/live-phone.png" width="22%" alt="Live view on a phone">
+</p>
+<p align="center">
+  <img src="docs/screenshots/cameras.png" width="32%" alt="Camera selection">
+  <img src="docs/screenshots/status.png" width="32%" alt="Status and firmware update">
+  <img src="docs/screenshots/calibrate.png" width="32%" alt="Orientation calibration">
+</p>
+
+The screenshots come from the [UI preview](tools/ui-preview/) with simulated device data and a
+generated test image, not from a real camera.
+
 ## Supported cameras
 
 | Family | Detection (SSID starts with) | Devices | Image | Orientation | Battery | LED | Status |
@@ -107,6 +122,7 @@ Details on usage, diagnostics and the measurements behind the settings are in
 | [firmware/include/web_ui.h](firmware/include/web_ui.h) | web UI |
 | [soulear-viewer.py](soulear-viewer.py), [probe-soulear.py](probe-soulear.py) | Python tools for the PC (standard library only) |
 | [docs/](docs/) | project documentation and handovers |
+| [tools/ui-preview/](tools/ui-preview/) | web UI preview without hardware (mock server) and screenshot script |
 
 **Memory:** the code of all protocols lives in flash and runs directly from there. Only the session
 of the currently connected camera occupies RAM. It is created on connect and freed again on

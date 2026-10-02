@@ -193,6 +193,7 @@ Prevents mangled packets during Wi-Fi/DMA memory bus conflicts.
 | `/snapshot` | GET | single frame (JPEG) |
 | `/calibrate` | GET | calibrate orientation (circle recording, quarter turns, zero point) |
 | `/calibration` | GET/POST | calibration data as JSON |
+| `/style.css`, `/app.js` | GET | shared style sheet and scripts of the pages |
 | `/update` | GET | status, Wi-Fi mode, Ethernet speed, firmware update, restart |
 | `/update` | POST | firmware update (binary, `application/octet-stream`) |
 | `/status` | GET | all counters as JSON |
@@ -207,6 +208,15 @@ Prevents mangled packets during Wi-Fi/DMA memory bus conflicts.
 | `/wifi/<bgn\|bg\|b>` | POST | switch the Wi-Fi mode towards the camera |
 | `/wifi/tx/<8..84>` | POST | Wi-Fi transmit power in 0.25 dBm |
 | `/restart` | POST | restart |
+
+| Live view | Cameras | Calibration |
+|---|---|---|
+| ![Live view](screenshots/live.png) | ![Camera selection](screenshots/cameras.png) | ![Calibration](screenshots/calibrate.png) |
+| **Status & update** | **Wi-Fi setup (rescue mode)** | **Phone** |
+| ![Status](screenshots/status.png) | ![Wi-Fi setup](screenshots/wifi-setup-rescue.png) | ![Phone](screenshots/live-phone.png) |
+
+Screenshots from [tools/ui-preview](../tools/ui-preview/) (simulated data, generated test image).
+The pages share `/style.css` and `/app.js`; no external resources are loaded.
 
 **Home Assistant** (MJPEG camera):
 ```yaml

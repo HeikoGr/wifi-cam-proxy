@@ -17,6 +17,10 @@ As of 2026-09-30: stable at 17 fps, also with a viewer. Dropouts only occur when
 | `/status` | all counters as JSON |
 | `/wifi-setup` | set up the home Wi-Fi for rescue mode (also via the own access point) |
 
+![Live view](../docs/screenshots/live.png)
+
+The screenshots in this file come from the [UI preview](../tools/ui-preview/) (simulated data, generated test image).
+
 ## Cameras
 
 The firmware looks for cameras with a Wi-Fi scan. The name patterns are in `SSID_PATTERNS` in [src/camera.cpp](src/camera.cpp):
@@ -24,6 +28,8 @@ The firmware looks for cameras with a Wi-Fi scan. The name patterns are in `SSID
 1. The last connected camera (NVS `cam_ssid`) is contacted directly at startup without a scan.
 2. If it cannot be reached, a scan runs. If exactly one recognised, open camera is in range, that one is taken.
 3. If several are in range, the start page shows a hint and you pick one under `/cameras`. Until then a new scan runs every 20 s.
+
+![Camera selection](../docs/screenshots/cameras.png)
 
 Under `/cameras` you can also choose an unknown network. With the protocol "automatic" the rule is: gateway `192.168.29.1` means MaxSee/JHCMD, otherwise i4season is used. A camera password is possible as well.
 
@@ -91,6 +97,8 @@ If Ethernet has no IP for 30 s, the red LED turns on and the device switches to 
 
 The camera is idle in rescue mode because Wi-Fi is then needed for reachability.
 
+![Wi-Fi setup in rescue mode](../docs/screenshots/wifi-setup-rescue.png)
+
 ## Emergency via USB-UART (3.3 V)
 
 1. Open the case and connect the adapter to TX, RX, GND and 3V3 (TX↔RX crossed).
@@ -118,6 +126,8 @@ The measures were measured on the device, with captures on the home network side
 Tried without effect: keepalive START every 5 s, smaller send blocks, larger TCP send buffer (11 KB), more Ethernet transmit buffers, store and forward in the Ethernet controller (still on, does no harm). The Zigbee module is held in reset although it did not cause the losses, because it is not needed and it saves power.
 
 ## Diagnostic tools
+
+![Status page](../docs/screenshots/status.png)
 
 | Tool | Purpose |
 |---|---|
