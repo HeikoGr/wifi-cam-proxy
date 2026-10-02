@@ -88,11 +88,15 @@ function orientation(onSample,onState){
 
 static const char INDEX_HTML[] = "<!doctype html><html><head><title>Otoskop</title>" PAGE_STYLE
     R"HTML(<style>#wrap{display:inline-block;transition:transform .12s linear}
-label{margin:0 8px;white-space:nowrap}.ctl{margin:8px 0}</style>
+label{margin:0 8px;white-space:nowrap}.ctl{margin:8px 0}
+#ledBtn{font-size:1.2rem;padding:4px 10px;border-radius:6px;border:none;cursor:pointer;background:#333;color:#ddd}
+#ledBtn.on{background:#f5c518;color:#111}</style>
 </head><body><h3>Otoskop Live</h3>
 <div id='wrap'><img src='/stream'></div>
 <div class='ctl'><label><input type='checkbox' id='on'> Lage korrigieren</label>
-<button id='zero'>Aktuelle Lage = oben</button></div>
+<button id='zero'>Aktuelle Lage = oben</button>
+<button id='ledBtn' title='Otoskop-LED ein/aus'>&#128261;</button></div>
+<p id='ledMsg' style='font-size:.8rem;color:#888'></p>
 <p><a href='/snapshot' download='otoskop.jpg'>Snapshot speichern</a> &middot;
 <a href='/calibrate'>Kalibrieren</a> &middot; <a href='/update'>Status &amp; Update</a></p>
 <script src='/app.js'></script><script>
@@ -107,6 +111,19 @@ $('zero').onclick=async()=>{
   $('on').checked=true;store.set('on',true);apply();
   try{await saveCal(cal)}catch(e){alert('Speichern fehlgeschlagen: '+e.message)}
 };
+// LED-Steuerung (SetLed 0x0A, laut i4season-Protokoll; am Gerät bisher ungetestet)
+let ledOn=store.get('led',false);
+function applyLed(){$('ledBtn').className=ledOn?'on':'';$('ledBtn').title='LED '+(ledOn?'an – klicken zum Ausschalten':'aus – klicken zum Einschalten')}
+$('ledBtn').onclick=async()=>{
+  ledOn=!ledOn;store.set('led',ledOn);applyLed();
+  try{
+    const r=await fetch('/led/'+(ledOn?'1':'0'),{method:'POST'});
+    const t=await r.text();
+    if(!r.ok){$('ledMsg').textContent='Fehler: '+t;ledOn=!ledOn;store.set('led',ledOn);applyLed()}
+    else{$('ledMsg').textContent='LED '+(ledOn?'an':'aus')+(t.includes('ungetestet')?'(Protokoll ungetestet)':'')}
+  }catch(e){$('ledMsg').textContent='Nicht erreichbar';ledOn=!ledOn;store.set('led',ledOn);applyLed()}
+};
+applyLed();
 apply();
 loadCal().then(c=>{cal=c;apply()});
 orientation(a=>{if(sm.add(a,cal))apply()});

@@ -94,6 +94,10 @@ static const int CLEAN_STALL_TIMES = 8;
 static uint32_t cleanStallAt[CLEAN_STALL_TIMES];
 static std::atomic<int> streamClients{0};
 static std::atomic<int> sseClients{0};
+// LED-Steuerung am Otoskop (Befehlstyp 0x0A, SetLed, laut i4season-Protokoll)
+// Ungetestet am Gerät; -1 = kein ausstehender Befehl, 0 = aus, 1 = an
+static std::atomic<int> ledPending{-1};
+static std::atomic<bool> ledState{false};
 // Signalstärke, 2x/s in loop() gelesen: WiFi.RSSI() wartet auf den WLAN-Treiber und
 // darf den Video-Task nicht ausbremsen (UDP-Empfangspuffer fasst nur 6 Pakete)
 static std::atomic<int8_t> wifiRssi{0};
@@ -121,6 +125,25 @@ static void setZigbee(bool on) {
   zigbeeOn = on;
   pinMode(ZIGBEE_NRST_GPIO, OUTPUT);
   digitalWrite(ZIGBEE_NRST_GPIO, on ? HIGH : LOW);
+}
+
+// Sendet einen SetLed-Befehl (Typ 0x0A) an das Otoskop über einen temporären UDP-Socket.
+// Laut i4season-Protokolldoku (Fyfar/ms5-wifi-microscope) mit 1 Byte Payload (0=aus, 1=an).
+// Am Soulear-Gerät bisher ungetestet.
+static void sendLedCommand(bool on) {
+  int s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  if (s < 0) return;
+  sockaddr_in addr = {};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = inet_addr(OTOSCOPE_IP);
+  addr.sin_port = htons(VIDEO_CTRL_PORT);
+  // Header: magic, id=5, type=0x0A (SetLed), unk=1, err=0, length=1; Payload: 0/1
+  uint8_t cmd[13] = {0xEE, 0xFF, 0xEE, 0xFF, 0x05, 0x00, 0x0A, 0x00,
+                     0x01, 0x00, 0x01, 0x00, on ? 0x01u : 0x00u};
+  sendto(s, cmd, sizeof(cmd), 0, (sockaddr *)&addr, sizeof(addr));
+  close(s);
+  ledState = on;
+  crumb("SetLed -> %s", on ? "an" : "aus");
 }
 static std::atomic<int> clientTasks{0};
 static float currentFps = 0;
@@ -652,6 +675,7 @@ static void handleStatus(int fd) {
                    "{\"version\":\"%s\",\"reset_reason\":\"%s\",\"boot_count\":%u,\"mode\":\"%s\",\"fps\":%.1f,\"frames\":%u,"
                    "\"dropped\":%u,\"drop_nomem\":%u,\"drop_toobig\":%u,\"drop_incomplete\":%u,\"packets_lost\":%u,\"damaged\":%u,\"max_frame\":%u,\"handshakes\":%u,\"keepalives\":%u,\"stalls_loss\":%u,\"stalls_clean\":%u,\"clean_stall_times\":[%s],\"stream_clients\":%d,\"sse_clients\":%d,\"client_tasks\":%d,"
                    "\"wifi_connected\":%s,\"wifi_ssid\":\"%s\",\"wifi_rssi\":%d,\"wifi_mode\":\"%s\",\"wifi_tx_dbm\":%.2f,\"dbg_video\":%d,\"dbg_wifi\":%d,\"zigbee\":%d,"
+                   "\"led\":%s,"
                    "\"eth_begin\":%s,\"eth_started\":%s,\"eth_link\":%s,\"eth_speed\":%d,\"eth_full_duplex\":%s,\"eth_tx_store_forward\":%d,\"eth_ip\":\"%s\",\"free_heap\":%u,\"max_alloc\":%u,\"min_heap\":%u,\"iram_heap\":%u,\"psram\":%u,\"uptime_s\":%lu,\"last_crash\":\"%s\"}",
                    FW_VERSION, resetReasonText(), (unsigned)bootCount, rescueMode ? "rescue" : "normal", currentFps,
                    (unsigned)framesTotal, (unsigned)framesDropped, (unsigned)dropNoMem,
@@ -659,6 +683,7 @@ static void handleStatus(int fd) {
                    (unsigned)maxFrameBytes, (unsigned)handshakes, (unsigned)keepalives, (unsigned)stallsLoss, (unsigned)stallsClean, times,
                    (int)streamClients, (int)sseClients, (int)clientTasks, wifiOk ? "true" : "false",
                    wifiOk ? WiFi.SSID().c_str() : "", wifiOk ? WiFi.RSSI() : 0, WIFI_MODES[wifiMode], wifiTxDbm(), (int)dbgVideo, (int)dbgWifi, (int)zigbeeOn,
+                   ledState ? "true" : "false",
                    ethBeginOk ? "true" : "false", ethStarted ? "true" : "false",
                    ethStarted && ETH.linkUp() ? "true" : "false",
                    ethStarted && ETH.linkUp() ? (int)ETH.linkSpeed() : 0,
@@ -982,6 +1007,11 @@ static void clientTask(void *arg) {
         c = calibJson;
       }
       sendResponse(fd, 200, "OK", "application/json", c.c_str(), c.length());
+    } else if (post && strncmp(path, "/led/", 5) == 0 &&
+               (path[5] == '0' || path[5] == '1') && path[6] == '\0') {
+      bool on = path[5] == '1';
+      sendLedCommand(on);
+      sendText(fd, 200, "OK", on ? "LED an" : "LED aus");
     } else if (post && strncmp(path, "/debug/", 7) == 0 && authorized(req.get())) {
       handleDebugPost(fd, path);
     } else if (post && strncmp(path, "/wifi/", 6) == 0 && authorized(req.get())) {
