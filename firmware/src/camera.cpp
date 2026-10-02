@@ -208,7 +208,7 @@ static void connectTo(const char *ssid, const char *pass, CamProto proto) {
     strlcpy(curPass, pass, sizeof(curPass));
     curProto = proto;
   }
-  Serial.printf("[cam] connecting to \"%s\" (%s)\n", ssid, protoKey(proto));
+  Serial.printf("[cam] connecting to \"%s\" (%s)\r\n", ssid, protoKey(proto));
   crumb("camera: connecting %s", ssid);
   WiFi.disconnect();
   wifiApplyMode();

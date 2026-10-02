@@ -462,7 +462,7 @@ void setup() {
   }
   Serial.begin(115200);
   crashlogInit();
-  Serial.println("\n[boot] WiFi-Cam-Viewer (CYD)");
+  Serial.println("\r\n[boot] WiFi-Cam-Viewer (CYD)");
 
   loadSettings();
   lcd.init();

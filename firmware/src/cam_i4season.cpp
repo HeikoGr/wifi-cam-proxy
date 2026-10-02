@@ -96,7 +96,7 @@ class I4seasonSession : public CamSession {
     }
 
     telemetry.ledSupported = true;
-    Serial.printf("[i4season] receiving on UDP port %u\n", myPort_);
+    Serial.printf("[i4season] receiving on UDP port %u\r\n", myPort_);
   }
 
   ~I4seasonSession() override {

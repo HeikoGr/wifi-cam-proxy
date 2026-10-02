@@ -311,7 +311,7 @@ static void handleUpdate(int fd, const char *req, const uint8_t *body, size_t bo
   if (total == 0) return sendText(fd, 411, "Length Required", "Content-Length missing");
   if (updating.exchange(true)) return sendText(fd, 409, "Conflict", "Update already running");
 
-  Serial.printf("[update] web update, %u bytes\n", (unsigned)total);
+  Serial.printf("[update] web update, %u bytes\r\n", (unsigned)total);
   const char *err = nullptr;
   if (!Update.begin(total, U_FLASH)) {
     err = Update.errorString();
@@ -338,7 +338,7 @@ static void handleUpdate(int fd, const char *req, const uint8_t *body, size_t bo
   if (err) {
     Update.abort();
     updating = false;
-    Serial.printf("[update] error: %s\n", err);
+    Serial.printf("[update] error: %s\r\n", err);
     char msg[128];
     snprintf(msg, sizeof(msg), "Update failed: %s", err);
     return sendText(fd, 500, "Internal Server Error", msg);
@@ -804,7 +804,7 @@ static void onNetworkEvent(arduino_event_id_t event, arduino_event_info_t info) 
       ethApplySpeed();
       break;
     case ARDUINO_EVENT_ETH_GOT_IP:
-      Serial.printf("[eth] IP %s\n", ETH.localIP().toString().c_str());
+      Serial.printf("[eth] IP %s\r\n", ETH.localIP().toString().c_str());
       crumb("eth IP %s, %d Mbit %s", ETH.localIP().toString().c_str(), (int)ETH.linkSpeed(),
             ETH.fullDuplex() ? "full duplex" : "HALF DUPLEX");
       ethUp = true;
@@ -819,12 +819,12 @@ static void onNetworkEvent(arduino_event_id_t event, arduino_event_info_t info) 
     case ARDUINO_EVENT_WIFI_STA_GOT_IP:
       cameraOnWifiGotIp();
       crumb("wifi connected %s, RSSI %d", WiFi.SSID().c_str(), WiFi.RSSI());
-      Serial.printf("[wifi] connected to %s, IP %s, RSSI %d dBm\n", WiFi.SSID().c_str(),
+      Serial.printf("[wifi] connected to %s, IP %s, RSSI %d dBm\r\n", WiFi.SSID().c_str(),
                     WiFi.localIP().toString().c_str(), WiFi.RSSI());
       if (ethUp) ETH.setDefault();
       break;
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
-      Serial.printf("[wifi] disconnected (reason %u)\n", info.wifi_sta_disconnected.reason);
+      Serial.printf("[wifi] disconnected (reason %u)\r\n", info.wifi_sta_disconnected.reason);
       crumb("wifi disconnected, reason %u", info.wifi_sta_disconnected.reason);
       break;
     default:
@@ -847,7 +847,7 @@ static void startOta() {
   ArduinoOTA.onError([](ota_error_t) { updating = false; });
   ArduinoOTA.begin();
   IPAddress ip = ethUp ? ETH.localIP() : WiFi.status() == WL_CONNECTED ? WiFi.localIP() : WiFi.softAPIP();
-  Serial.printf("[http] viewer: http://%s.local/  or http://%s/\n", HOSTNAME,
+  Serial.printf("[http] viewer: http://%s.local/  or http://%s/\r\n", HOSTNAME,
                 ip.toString().c_str());
 }
 
@@ -865,7 +865,7 @@ void setup() {
   }
   bootCount++;
   crashlogInit();
-  Serial.printf("\n[boot] WiFi-Cam-Proxy %s, Reset: %s, Boot #%u\n", FW_VERSION,
+  Serial.printf("\r\n[boot] WiFi-Cam-Proxy %s, Reset: %s, Boot #%u\r\n", FW_VERSION,
                 resetReasonText(), (unsigned)bootCount);
 
   loadCalibration();
@@ -875,7 +875,7 @@ void setup() {
   ethBeginOk = ETH.begin(ETH_PHY_LAN8720, ETH_PHY_ADDR_GW, ETH_MDC_GPIO, ETH_MDIO_GPIO, ETH_POWER_GPIO,
             ETH_CLK_MODE_GW);
 
-  Serial.printf("[eth] begin %s\n", ethBeginOk ? "ok" : "FAILED");
+  Serial.printf("[eth] begin %s\r\n", ethBeginOk ? "ok" : "FAILED");
 
   cameraBegin();  // Wi-Fi to the camera and video task
   xTaskCreatePinnedToCore(httpTask, "http", 4096, nullptr, 3, nullptr, 1);
@@ -916,7 +916,7 @@ void loop() {
     currentFps = (total - lastFrames) * 1000.0f / (millis() - lastStats);
     lastFrames = total;
     lastStats = millis();
-    Serial.printf("[stats] %.1f fps, %u frames, %u dropped, %d viewers, heap %u%s\n",
+    Serial.printf("[stats] %.1f fps, %u frames, %u dropped, %d viewers, heap %u%s\r\n",
                   currentFps, (unsigned)total, (unsigned)stats.framesDropped, (int)streamClients,
                   heapFree(), rescueMode ? ", RESCUE MODE" : "");
   }

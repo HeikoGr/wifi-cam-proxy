@@ -56,7 +56,7 @@ static void connectHome() {
   staSince = millis();
   staTrying = *ssid;
   if (!*ssid) return;
-  Serial.printf("[rescue] connecting to home Wi-Fi \"%s\"\n", ssid);
+  Serial.printf("[rescue] connecting to home Wi-Fi \"%s\"\r\n", ssid);
   WiFi.disconnect();
   WiFi.setAutoReconnect(true);
   WiFi.begin(ssid, *pass ? pass : nullptr);
@@ -76,7 +76,7 @@ static void startAp() {
   apActive = true;
   staTrying = false;
   staSince = millis();
-  Serial.printf("[rescue] access point \"%s\" on, setup at http://%s/wifi-setup\n", ssid,
+  Serial.printf("[rescue] access point \"%s\" on, setup at http://%s/wifi-setup\r\n", ssid,
                 WiFi.softAPIP().toString().c_str());
   crumb("setup AP %s on", ssid);
 }
@@ -87,7 +87,7 @@ void rescueEnter() {
   WiFi.scanDelete();
   char ssid[33];
   rescueHomeSsid(ssid, sizeof(ssid));
-  Serial.printf("[rescue] Ethernet without IP -> %s\n", *ssid ? "home Wi-Fi" : "own access point");
+  Serial.printf("[rescue] Ethernet without IP -> %s\r\n", *ssid ? "home Wi-Fi" : "own access point");
   if (*ssid) connectHome();
   else startAp();
 }

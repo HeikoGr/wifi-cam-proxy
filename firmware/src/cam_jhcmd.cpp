@@ -45,7 +45,7 @@ class JhcmdSession : public CamSession {
     camAddr_.sin_addr.s_addr = camIp;
     camAddr_.sin_port = htons(CMD_PORT);
     telemetry.ledSupported = false;
-    Serial.printf("[jhcmd] receiving on UDP port %u\n", VIDEO_PORT);
+    Serial.printf("[jhcmd] receiving on UDP port %u\r\n", VIDEO_PORT);
   }
 
   ~JhcmdSession() override {

@@ -68,5 +68,5 @@ void crumb(const char *fmt, ...) {
   va_start(ap, fmt);
   vsnprintf(buf, sizeof(buf), fmt, ap);
   va_end(ap);
-  Serial.printf("[%lu.%03lu] %s\n", millis() / 1000, millis() % 1000, buf);
+  Serial.printf("[%lu.%03lu] %s\r\n", millis() / 1000, millis() % 1000, buf);
 }
