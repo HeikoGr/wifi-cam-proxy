@@ -305,6 +305,22 @@ variant), Wi-Fi RSSI −26 to −49 dBm:
   frame: horizontal streaks, also with no packet lost. The JHCMD session cuts every run in
   the scan data down to one `FF` before publishing (browsers decode it the same way).
   `[stats]` counts `decode errors`.
+- **Last group of a cropped row:** JPEGDEC draws the MCUs of a row in groups (up to
+  `MAX_BUFFERED_PIXELS` = 2048 px) and draws a group only once it is full. At 1:1 with 4:2:0
+  (16×16 MCUs) it decodes 21 MCUs per row in groups of 8, the last 5 were never drawn: 64 px
+  black at the right. The firmware picks a group size that divides the MCUs per row (7) and
+  widens the crop by a few MCUs if there is no useful divisor (clip rectangle hides them).
+  Checked on the host with JPEGDEC for 1280×720, 640×480 and 480×480 (4:2:0, 4:2:2, 4:4:4).
+- **Rows above the crop skipped:** entropy-coded data has no positions, so JPEGDEC reads every
+  row above the 1:1 crop (MAX-VIEW: rows 0–223 of 720 at full width). With restart markers
+  the data of an interval does not depend on anything before it: `FrameReader`
+  ([jpeg_reader.h](../firmware/include/jpeg_reader.h)) serves the header with a smaller image
+  height followed by the data after the RSTn marker at which the crop row begins, the crop
+  moves up accordingly. Host check with JPEGDEC: pixel-identical, 0.55 → 0.37 ms per decode
+  (−33 %) for the MAX-VIEW frame at 1:1. Without DRI, or in "fit", nothing changes.
+- **No waiting screen between frames:** with 720p the store gives up its frame for the next
+  one (`released`); the display then briefly finds no frame. While connected and the last
+  image is younger than 3 s it keeps that image instead of drawing "Waiting for image...".
 - **Overlay** (battery, fps): sits in the side border or in a 10 px strip that the image leaves
   out at 1:1, and is only redrawn when its text changes (no flicker).
 - **No orientation correction:** removed. Arbitrary angles need a frame buffer, and in 90°

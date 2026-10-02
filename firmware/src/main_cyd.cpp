@@ -34,6 +34,7 @@
 #include "camera.h"
 #include "config.h"
 #include "crashlog.h"
+#include "jpeg_reader.h"
 
 // Expected by camera.cpp. The CYD has no rescue mode and no OTA.
 volatile bool rescueMode = false;
@@ -72,35 +73,15 @@ static void saveSettings() {
   }
 }
 
-// --- Read the JPEG from the packet list ---------------------------------------------
-struct FrameReader {
-  Frame frame;
-  int chunk = 0;      // chunk containing the last read position
-  size_t start = 0;   // byte position at which this chunk starts
-};
+// --- Read the JPEG from the packet list (include/jpeg_reader.h) ----------------------
 static FrameReader reader;
 
 static int32_t jpgRead(JPEGFILE *f, uint8_t *buf, int32_t len) {
-  FrameReader *r = (FrameReader *)f->fHandle;
-  const Frame &fr = r->frame;
-  if ((size_t)f->iPos < r->start) {  // jumped back -> search from the start
-    r->chunk = 0;
-    r->start = 0;
-  }
-  int32_t done = 0;
-  while (done < len && f->iPos < f->iSize) {
-    while (r->chunk < fr.chunks() && (size_t)f->iPos >= r->start + fr.chunkLen(r->chunk)) {
-      r->start += fr.chunkLen(r->chunk);
-      r->chunk++;
-    }
-    if (r->chunk >= fr.chunks()) break;
-    size_t off = f->iPos - r->start;
-    size_t k = min((size_t)(len - done), fr.chunkLen(r->chunk) - off);
-    copyFromChunk(buf + done, fr.chunk(r->chunk), off, k);
-    done += k;
-    f->iPos += k;
-  }
-  return done;
+  if (len > f->iSize - f->iPos) len = f->iSize - f->iPos;
+  if (len <= 0) return 0;
+  int32_t n = reader.read(f->iPos, buf, len);
+  f->iPos += n;
+  return n;
 }
 static int32_t jpgSeek(JPEGFILE *f, int32_t pos) {
   f->iPos = pos;
@@ -131,16 +112,43 @@ static bool overlaySide = false;
 static char overlayShown[40] = "";  // last drawn overlay text
 static uint32_t drawnFrames = 0;
 static std::atomic<uint32_t> drawMsSum{0}, drawMsMax{0};  // decode + SPI time, for [stats]
+static std::atomic<uint32_t> decodeErrors{0};  // JPEGDEC stopped midway: rest of the image is old
 static uint32_t lastFrameAt = 0;  // for the "no signal" hint
 static float shownFps = 0;
 static char statusShown[64] = "";
 
+// JPEGDEC hands over the decoded MCUs of a row in groups (up to MAX_BUFFERED_PIXELS)
+// and only draws a group once it is full: with a crop, the last, partly filled group of
+// each row was never drawn (MAX-VIEW 1280x720 at 1:1: 21 MCUs per row in groups of 8,
+// the right 64 pixels stayed black). So choose a group size that divides the number of
+// MCUs per row; if that number has no useful divisor, widen the crop by a few MCUs (the
+// clip rectangle hides them). JPEGDEC decodes MCU columns ax/mw rounded up to
+// (ax+aw)/mw inclusive, and caps a group at aw/mw MCUs.
+static void fitGroups(int W, int ax, int ay, int aw, int ah) {
+  int sub = jpeg->getSubSample();
+  int mw = (sub >> 4) == 2 ? 16 : 8, mh = (sub & 15) == 2 ? 16 : 8;
+  int first = (ax + mw - 1) / mw, cols = (W + mw - 1) / mw;
+  int maxGroup = MAX_BUFFERED_PIXELS / (mw * mh);
+  int bestGroup = 1, bestW = aw;
+  for (int extra = 0; extra < maxGroup && (ax + aw) / mw + extra < cols; extra++) {
+    int w = aw + extra * mw;
+    int mcus = (ax + w) / mw - first + 1;
+    int g = min(maxGroup, w / mw);
+    while (g > 1 && mcus % g) g--;
+    if (g > bestGroup) {
+      bestGroup = g;
+      bestW = w;
+    }
+    if (g * 2 > maxGroup) break;  // good enough
+  }
+  if (bestW != aw) jpeg->setCropArea(ax, ay, bestW, ah);
+  jpeg->setMaxOutputSize(bestGroup);
+}
+
 static bool drawFrame(const Frame &f) {
-  reader.frame = f;
-  reader.chunk = 0;
-  reader.start = 0;
-  if (!jpeg->open(&reader, (int)f.size(), jpgClose, jpgRead, jpgSeek, jpgDraw)) {
-    reader.frame.reset();
+  reader.reset(f);
+  if (!jpeg->open(&reader, (int)reader.size(), jpgClose, jpgRead, jpgSeek, jpgDraw)) {
+    reader.release();
     return false;
   }
   jpeg->setPixelType(RGB565_BIG_ENDIAN);
@@ -166,6 +174,20 @@ static bool drawFrame(const Frame &f) {
     jpeg->getCropArea(&ax, &ay, &aw, &ah);
     dx = dw / 2 - W / 2 + ax;
     dy = dh / 2 - H / 2 + ay;
+    // Do not decode the rows above the crop if restart markers allow it: open again as
+    // the smaller image that starts there, the crop moves up by as many rows
+    if (int skipped = reader.skipAbove(ay)) {
+      jpeg->close();
+      if (!jpeg->open(&reader, (int)reader.size(), jpgClose, jpgRead, jpgSeek, jpgDraw)) {
+        reader.release();
+        lcd.setRotation(UI_ROT);
+        return false;
+      }
+      jpeg->setPixelType(RGB565_BIG_ENDIAN);
+      ay -= skipped;
+      jpeg->setCropArea(ax, ay, aw, ah);
+    }
+    fitGroups(W, ax, ay, aw, ah);
     opt = 0;
   } else {
     // Fit: largest scale (1, 1/2, 1/4, 1/8) at which the image fits the display
@@ -221,12 +243,12 @@ static bool drawFrame(const Frame &f) {
     overlayShown[0] = 0;
   }
   lcd.setClipRect(x, y, w, h);  // do not paint edge blocks beyond the image
-  jpeg->decode(dx, dy, opt);
+  if (!jpeg->decode(dx, dy, opt)) decodeErrors++;
   lcd.clearClipRect();
   lcd.endWrite();
   jpeg->close();
   lcd.setRotation(UI_ROT);
-  reader.frame.reset();
+  reader.release();
   return true;
 }
 
@@ -461,6 +483,10 @@ static void displayTask(void *) {
       // A new frame is almost always ready (camera faster than the display): without
       // this the task would never block and IDLE0 would trip the task watchdog
       vTaskDelay(1);
+    } else if (!f && !strcmp(st, "connected") && lastFrameAt && millis() - lastFrameAt < 3000) {
+      // Store empty only for a moment: it gave its frame up for the next one (memory
+      // short, 720p). Keep the last image instead of flashing the waiting screen.
+      vTaskDelay(pdMS_TO_TICKS(5));
     } else if (!f) {
       char text[64];
       char ssid[33];
@@ -531,6 +557,7 @@ void setup() {
   }
 
   Network.onEvent(onNetworkEvent);
+  heap_caps_monitor_local_minimum_free_size_start();  // heap minimum per [stats] interval
   cameraBegin();
   xTaskCreatePinnedToCore(displayTask, "display", 8192, nullptr, 1, nullptr, 0);
 }
@@ -538,23 +565,31 @@ void setup() {
 void loop() {
   cameraLoop();
   static uint32_t lastStats = 0, lastFrames = 0, lastDrawn = 0, lastLost = 0, lastDamaged = 0,
-                  lastIncomplete = 0, lastTooBig = 0, lastNoMem = 0;
+                  lastIncomplete = 0, lastTooBig = 0, lastNoMem = 0, lastReleased = 0,
+                  lastDecodeErr = 0;
   if (millis() - lastStats >= 5000) {
     uint32_t total = stats.framesTotal, drawn = drawnFrames, lost = stats.packetsLost,
              damaged = stats.framesDamaged, incomplete = stats.dropIncomplete,
-             tooBig = stats.dropTooBig, noMem = stats.dropNoMem;
+             tooBig = stats.dropTooBig, noMem = stats.dropNoMem, released = stats.framesReleased,
+             decodeErr = decodeErrors;
+    // Lowest free heap in this interval (not since boot): shows whether the frames leave
+    // the Wi-Fi driver enough
+    unsigned minNow = heapMin();
+    heap_caps_monitor_local_minimum_free_size_stop();
+    heap_caps_monitor_local_minimum_free_size_start();
     float dt = (millis() - lastStats) / 1000.0f;
     // Artifacts with "damaged" > 0: Wi-Fi (packet loss). Without: look at draw ms vs.
     // the frame interval of the camera.
     Serial.printf("[stats] received %.1f fps, shown %.1f fps | lost pkts %u, damaged %u, incomplete %u, "
-                  "too big %u, no mem %u, handshakes %u, RSSI %d | draw avg %u ms max %u ms | battery %d%%%s | "
-                  "heap %u (min %u)\r\n",
+                  "too big %u, no mem %u, released %u, handshakes %u, RSSI %d | draw avg %u ms max %u ms, decode errors %u | battery %d%%%s | "
+                  "heap %u (min %u) | largest frame %u KB\r\n",
                   (total - lastFrames) / dt, (drawn - lastDrawn) / dt, lost - lastLost,
                   damaged - lastDamaged, incomplete - lastIncomplete, tooBig - lastTooBig, noMem - lastNoMem,
+                  released - lastReleased,
                   (unsigned)stats.handshakes, (int)WiFi.RSSI(),
                   drawn > lastDrawn ? (unsigned)(drawMsSum / (drawn - lastDrawn)) : 0u,
-                  (unsigned)drawMsMax, (int)telemetry.battery, telemetry.charging == 1 ? " (charging?)" : "",
-                  heapFree(), heapMin());
+                  (unsigned)drawMsMax, decodeErr - lastDecodeErr, (int)telemetry.battery, telemetry.charging == 1 ? " (charging?)" : "",
+                  heapFree(), minNow, (unsigned)(stats.maxFrameBytes / 1024));
     drawMsSum = 0;
     drawMsMax = 0;
     lastFrames = total;
@@ -564,6 +599,8 @@ void loop() {
     lastIncomplete = incomplete;
     lastTooBig = tooBig;
     lastNoMem = noMem;
+    lastReleased = released;
+    lastDecodeErr = decodeErr;
     lastStats = millis();
   }
   delay(10);
