@@ -1,6 +1,6 @@
-# Otoskop-Bridge auf ZB-GW03 v1.4
+# Firmware: WiFi-Cam-Proxy auf ZB-GW03 v1.4 / WT32-ETH01
 
-Der ZB-GW03 (ESP32 + LAN8720, eigentlich ein Zigbee-Gateway) verbindet sich per WLAN mit dem Otoskop (`Soulear-6b1c9`) und liefert das Bild über Ethernet ins Heimnetz. Im Browser gibt es eine Lagekorrektur, die das Bild mitdreht, wenn der Stift gedreht wird.
+Der ZB-GW03 (ESP32 + LAN8720, eigentlich ein Zigbee-Gateway) verbindet sich per WLAN mit einer Kamera und liefert das Bild über Ethernet ins Heimnetz. Erkannt wird die Kamera am WLAN-Namen, siehe [Kameras](#kameras). Für Otoskope mit Lagesensor gibt es im Browser eine Lagekorrektur, die das Bild mitdreht, wenn der Stift gedreht wird.
 
 Stand 30.09.2026: Stabil bei 17 fps, auch mit Zuschauer. Aussetzer gibt es nur noch, wenn das WLAN-Signal des Stifts schwach wird (ab etwa −70 dBm).
 
@@ -8,28 +8,48 @@ Stand 30.09.2026: Stabil bei 17 fps, auch mit Zuschauer. Aussetzer gibt es nur n
 
 | Adresse | Zweck |
 |---|---|
-| `http://otoskop.local/` | Live-Bild mit Lagekorrektur und Snapshot |
+| `http://otoskop.local/` | Live-Bild mit Lagekorrektur, Akku, LED und Snapshot |
+| `/cameras` | gefundene Kameras, Auswahl, neu suchen (JSON: `/cameras.json`) |
 | `/stream` | MJPEG für VLC oder Home Assistant (ungedreht) |
 | `/snapshot` | aktuelles Einzelbild (JPEG) |
 | `/calibrate` | Lage kalibrieren: Kreis-Aufzeichnung, Vierteldrehungen, Nullpunkt, Glättung |
 | `/update` | Status, WLAN-Modus, Firmware-Update, Neustart |
 | `/status` | alle Zähler als JSON |
-| `/log` | Absturz-Mitschnitt und die letzten 40 Ereignisse, vom aktuellen und vom letzten Lauf |
+| `/wifi-setup` | Heim-WLAN für den Notfall-Modus einrichten (auch über den eigenen Access Point) |
+
+## Kameras
+
+Die Firmware sucht per WLAN-Scan nach Kameras. Die Namensmuster stehen in `SSID_PATTERNS` in [src/camera.cpp](src/camera.cpp):
+
+1. Die zuletzt verbundene Kamera (NVS `cam_ssid`) wird beim Start ohne Scan direkt angesprochen.
+2. Ist sie nicht erreichbar, wird gesucht. Ist genau eine erkannte, offene Kamera in Reichweite, wird diese genommen.
+3. Sind mehrere in Reichweite, zeigt die Startseite einen Hinweis, und unter `/cameras` wählst du eine aus. Bis dahin wird alle 20 s neu gesucht.
+
+Unter `/cameras` lässt sich auch ein unbekanntes Netz wählen. Mit dem Protokoll „automatisch“ gilt dann: Gateway `192.168.29.1` bedeutet MaxSee/JHCMD, sonst wird i4season verwendet. Ein Kamera-Passwort ist ebenfalls möglich.
+
+| Protokoll | Datei | Video | Extras |
+|---|---|---|---|
+| i4season | [src/cam_i4season.cpp](src/cam_i4season.cpp) | GetDeviceInfo :10005, START :10006, 16/28-Byte-Kopf | Lagesensor (wenn Kopf-Flag gesetzt), Akku aus Devinfo und Status-Push :10007, LED (`0x0A`, Payload `11 01 64` / `11 00 00`) |
+| JHCMD (MaxSee) | [src/cam_jhcmd.cpp](src/cam_jhcmd.cpp) | `JHCMD` an :20000, Video an festen Port 10900, 8-Byte-Kopf | – |
+
+Nur die Sitzung der aktiven Kamera belegt RAM, der Protokoll-Code liegt im Flash.
 
 LEDs: **Grün** heißt, die Firmware läuft. **Rot** heißt Notfall-Modus.
 
 ## Konfiguration
 
 - [include/config.h](include/config.h): Pins, Zeitgrenzen, Standardwerte
-- `include/secrets.h` (Vorlage [secrets.example.h](include/secrets.example.h)): Heim-WLAN für den Notfall-Modus, optional `OTA_PASSWORD`
+- `include/secrets.h` (Vorlage [secrets.example.h](include/secrets.example.h)), optional: `OTA_PASSWORD`, `SETUP_AP_PASSWORD`, Heim-WLAN als Vorgabe
 - **NVS** (Namespace `otoskop`) speichert Laufzeit-Einstellungen. Sie überstehen Neustart und Firmware-Update:
 
 | Schlüssel | Inhalt | ändern über |
 |---|---|---|
 | `calib` | Lage-Kalibrierung (JSON) | `/calibrate` → „Auf Gerät speichern“ |
-| `wifimode` | `bgn`, `bg` oder `b` | `/update` → „WLAN zum Otoskop“ |
+| `cam_ssid`, `cam_pass`, `cam_proto` | zuletzt verbundene Kamera | `/cameras` |
+| `wifimode` | `bgn`, `bg` oder `b` | `/update` → „WLAN zur Kamera“ |
 | `wifitx` | WLAN-Sendeleistung in 0,25 dBm | `POST /wifi/tx/<8..84>` |
-| `eth10` | Ethernet nur 10 Mbit (Standard: an) | `POST /debug/eth10/<0\|1>` |
+| `eth10` | Ethernet nur 10 Mbit (Standard: ZB-GW03 an, WT32-ETH01 aus) | `/update` bzw. `POST /eth10/<0\|1>` |
+| `home_ssid`, `home_pass` | Heim-WLAN für den Notfall-Modus | `/wifi-setup` |
 
 Die Kalibrierung sichern und zurückspielen:
 
@@ -63,7 +83,13 @@ Ist `OTA_PASSWORD` gesetzt, gilt es für alle Wege. Bei curl gibst du es als Hea
 
 ## Notfall-Modus
 
-Hat Ethernet 30 s keine IP, wechselt das WLAN vom Otoskop ins Heim-WLAN aus `secrets.h`. Die rote LED geht an, und Weboberfläche und OTA bleiben unter `otoskop.local` erreichbar. Ist Ethernet 10 s stabil zurück, startet das Gerät neu in den Normalbetrieb. Ohne `secrets.h` ist der Notfall-Modus aus.
+Hat Ethernet 30 s keine IP, geht die rote LED an und das Gerät wechselt in den Notfall-Modus:
+
+1. Ist ein Heim-WLAN eingerichtet, verbindet es sich damit. Weboberfläche und OTA bleiben dann unter `otoskop.local` erreichbar. Das Heim-WLAN stellst du unter `/wifi-setup` ein, dann steht es im NVS. Ersatzweise nimmt das Gerät `HOME_WIFI_SSID` aus `secrets.h`.
+2. Ist keins eingerichtet oder ist es 30 s lang nicht erreichbar, öffnet das Gerät einen eigenen Access Point `WiFi-Cam-XXXX` (Passwort `SETUP_AP_PASSWORD`, Standard `wificam-setup`). Nach dem Verbinden öffnet das Handy die Einrichtungsseite von selbst (Captive Portal), sonst rufst du `http://192.168.4.1/wifi-setup` auf. Dort suchst du nach Netzen und speicherst das Heim-WLAN, das Gerät verbindet sich sofort. Bei laufendem AP versucht es das Heim-WLAN alle 5 Minuten erneut, solange niemand mit dem AP verbunden ist.
+3. Ist Ethernet 10 s stabil zurück, startet das Gerät neu in den Normalbetrieb.
+
+Die Kamera ruht im Notfall-Modus, weil das WLAN dann für die Erreichbarkeit gebraucht wird.
 
 ## Notfall per USB-UART (3,3 V)
 
@@ -95,13 +121,12 @@ Ausprobiert und ohne Wirkung waren: Lebenszeichen-START alle 5 s, kleinere Sende
 
 | Werkzeug | Zweck |
 |---|---|
-| `/log` | Ereignisse pro Sekunde: fps, `nm`/`inc`/`lost` (verworfen wegen Speicher, unvollständig, verlorene Pakete), Heap, RSSI, Zuschauer. Dazu Stillstände mit Ursache und bei einem Absturz der Backtrace |
-| `/status` | Zähler seit dem Start, unter anderem `stalls_loss`/`stalls_clean`, `free_heap`/`min_heap`/`iram_heap`, `eth_speed` |
-| `/sensor` | Paketköpfe der letzten ~7 s, diente zum Entschlüsseln des Lagesensors |
-| `POST /debug/<video\|wifi\|zigbee\|eth10>/<0\|1>` | Test-Schalter: Video nicht verarbeiten, WLAN trennen, Zigbee an/aus, 10 Mbit |
-| `POST /crashtest` | löst absichtlich einen Absturz aus, um den Mitschnitt zu prüfen |
+| `/status` | Zähler seit dem Start, unter anderem `stalls_loss`/`stalls_clean`, `free_heap`/`min_heap`/`iram_heap`, `eth_speed`, und `last_crash` mit dem Backtrace des letzten Absturzes |
+| serielle Konsole | Ereignisse (Verbindungen, Stillstände, Kamerawechsel) und alle 5 s fps und Heap |
 
-Einen Backtrace aus `/log` löst du so auf. Du brauchst dafür die `firmware.elf` **genau dieser** Firmware:
+`/log`, `/sensor`, `/crashtest` und die Debug-Schalter (`/debug/...`) wurden entfernt, um RAM zu sparen. Allein der Paketkopf-Mitschnitt und die Kopie des Ereignisprotokolls belegten ~6 KB Heap. Der Absturz-Backtrace liegt im RTC-Speicher und kostet keinen Heap, deshalb ist er geblieben.
+
+Einen Backtrace aus `last_crash` löst du so auf. Du brauchst dafür die `firmware.elf` **genau dieser** Firmware:
 
 ```
 ~/.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32-elf-addr2line -pfiaC \

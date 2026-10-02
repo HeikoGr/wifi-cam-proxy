@@ -80,7 +80,7 @@ Quelle: [egnor/wt32-eth01](https://github.com/egnor/wt32-eth01).
 
 ## 3. Protokoll (i4season / libWifiCamera)
 
-Das Gerät spricht das **i4season-Protokoll**, das auch von WLAN-Mikroskopen (MaxSee),
+Das Gerät spricht das **i4season-Protokoll**, das auch von WLAN-Mikroskopen (MS5, vermutlich MAX-VIEW; MaxSee spricht dagegen JHCMD),
 Ohrenspiegeln (AiSee, Suear) und anderen Geräten dieser Familie genutzt wird.
 
 ### 3.1 Protokoll-Header (12 Byte, little-endian)
@@ -102,7 +102,8 @@ Offset  Länge  Typ   Bedeutung
 | GetDeviceInfo | UDP 10005 | 0x0001 | – | ✅ verifiziert |
 | START/OpenVideo | UDP 10006 | 0x0004 | 2 Byte eigener Empfangsport (LE) + `00 00` | ✅ verifiziert |
 | Videodaten | → eigener Port | – | 16-Byte-Kopf + JPEG-Chunk | ✅ verifiziert |
-| SetLed | UDP 10006 | 0x000A | 1 Byte: `0x00`=aus, `0x01`=an | ⚠️ dokumentiert, am Gerät ungetestet |
+| LED | UDP 10005 | 0x000A | 3 Byte: op `0x11` (LED 1, schreiben), Status 0/1, Helligkeit (`11 01 64` an, `11 00 00` aus); Antwort = neuer Zustand | ✅ laut king-cake am Find T verifiziert, eigene Firmware ungetestet |
+| Akku | UDP 10005 / 10007 | 0x0001 / 0x0009 | Devinfo-Byte `0x78 >> 1`; Status-Push an Port 10007, Payload-Byte 1 `>> 1` | ⚠️ dokumentiert, eigene Firmware ungetestet |
 
 **Pflicht-Reihenfolge:** GetDeviceInfo **muss** vom selben Socket wie START kommen
 (gleiche lokale IP+Port). Ohne diesen Schritt bestätigt das Gerät START zwar, schickt
@@ -175,7 +176,7 @@ Beim ersten Build mit geändertem `custom_sdkconfig` wird ESP-IDF neu gebaut (~4
 ### 4.5 Ethernet: 10 Mbit und Store-and-Forward
 
 **10 Mbit (ZB-GW03):** PHY-Aushandlung auf „nur 10 Mbit Vollduplex" gesetzt (PHY-Register
-ANAR Bits 5–8). Reicht für 3 Zuschauer. Umschaltbar zur Laufzeit: `POST /debug/eth10/0`.
+ANAR Bits 5–8). Reicht für 3 Zuschauer. Umschaltbar zur Laufzeit: `/update` bzw. `POST /eth10/<0|1>`.
 
 **Store-and-Forward:** Aktiviert via `EMAC_DMA.dmaoperation_mode.tx_str_fwd = 1`.
 Verhindert verstümmelte Pakete bei WLAN/DMA-Speicherbus-Konflikten.
@@ -194,16 +195,17 @@ Verhindert verstümmelte Pakete bei WLAN/DMA-Speicherbus-Konflikten.
 | `/update` | GET | Status, WLAN-Modus, Firmware-Update, Neustart |
 | `/update` | POST | Firmware-Update (Binärdatei, `application/octet-stream`) |
 | `/status` | GET | Alle Zähler als JSON |
-| `/log` | GET | Ereignisprotokoll + Absturz-Backtrace |
+| `/wifi-setup` | GET/POST | Heim-WLAN für den Notfall-Modus (Formular `ssid`, `pass`) |
+| `/eth10/<0\|1>` | POST | Ethernet 10 Mbit an/aus |
 | `/orientation` | GET | Server-Sent Events: Lagesensor ~17×/s |
-| `/led/0` | POST | Otoskop-LED aus (SetLed 0x0A, **ungetestet**) |
-| `/led/1` | POST | Otoskop-LED an |
-| `/sensor` | GET | Rohe Paketkopf-Mitschnitte (~7 s) |
+| `/led/0`, `/led/1` | POST | Kamera-LED aus/an (i4season 0x0A, wartet auf Bestätigung) |
+| `/cameras` | GET | Kamera wählen (Scan-Liste, Auswahl) |
+| `/cameras.json` | GET | Kamera-Zustand, Telemetrie (Akku, LED, Gerät), Scan-Liste |
+| `/cameras/scan` | POST | neu suchen |
+| `/cameras/select` | POST | Formular `ssid`, `pass`, `proto` (`auto`/`i4season`/`jhcmd`); leere SSID = Auswahl löschen |
 | `/wifi/<bgn\|bg\|b>` | POST | WLAN-Modus zum Otoskop umschalten |
 | `/wifi/tx/<8..84>` | POST | WLAN-Sendeleistung in 0,25 dBm |
 | `/restart` | POST | Neustart |
-| `/debug/<video\|wifi\|zigbee\|eth10>/<0\|1>` | POST | Diagnose-Schalter |
-| `/crashtest` | POST | Absturz auslösen (für Backtrace-Test) |
 
 **Home Assistant** (MJPEG-Kamera):
 ```yaml
@@ -240,7 +242,8 @@ Wichtige Konstanten:
 | `calib` | Lage-Kalibrierung (JSON) | `/calibrate` |
 | `wifimode` | `bgn`/`bg`/`b` | `/update` |
 | `wifitx` | WLAN-Sendeleistung (0,25 dBm) | `POST /wifi/tx/<Wert>` |
-| `eth10` | Ethernet 10 Mbit (Standard: an) | `POST /debug/eth10/<0\|1>` |
+| `eth10` | Ethernet 10 Mbit (Standard: an) | `POST /eth10/<0\|1>` |
+| `home_ssid`, `home_pass` | Heim-WLAN für den Notfall-Modus | `/wifi-setup` |
 
 ### 6.3 Geheimnisse ([firmware/include/secrets.h](../firmware/include/secrets.h))
 
@@ -327,10 +330,13 @@ Für weitere Boards: Neue Sektion in `config.h` und neues `[env:...]` in `platfo
 
 ## 9. Notfall-Modus
 
-Hat Ethernet 30 s keine IP → WLAN wechselt ins Heim-WLAN (aus `secrets.h`).
-- Rote LED (GPIO15) leuchtet
-- Weboberfläche und OTA bleiben unter `http://otoskop.local/` erreichbar
-- Kommt Ethernet 10 s zurück → automatischer Neustart in Normalbetrieb
+Hat Ethernet 30 s keine IP, geht die rote LED an und das Gerät wechselt in den Notfall-Modus:
+
+1. Ist ein Heim-WLAN eingerichtet, verbindet es sich damit. Weboberfläche und OTA bleiben dann unter `otoskop.local` erreichbar. Das Heim-WLAN stellst du unter `/wifi-setup` ein, dann steht es im NVS. Ersatzweise nimmt das Gerät `HOME_WIFI_SSID` aus `secrets.h`.
+2. Ist keins eingerichtet oder ist es 30 s lang nicht erreichbar, öffnet das Gerät einen eigenen Access Point `WiFi-Cam-XXXX` (Passwort `SETUP_AP_PASSWORD`, Standard `wificam-setup`). Nach dem Verbinden öffnet das Handy die Einrichtungsseite von selbst (Captive Portal), sonst rufst du `http://192.168.4.1/wifi-setup` auf. Dort suchst du nach Netzen und speicherst das Heim-WLAN, das Gerät verbindet sich sofort. Bei laufendem AP versucht es das Heim-WLAN alle 5 Minuten erneut, solange niemand mit dem AP verbunden ist.
+3. Ist Ethernet 10 s stabil zurück, startet das Gerät neu in den Normalbetrieb.
+
+Die Kamera ruht im Notfall-Modus, weil das WLAN dann für die Erreichbarkeit gebraucht wird.
 
 ---
 
@@ -338,27 +344,25 @@ Hat Ethernet 30 s keine IP → WLAN wechselt ins Heim-WLAN (aus `secrets.h`).
 
 | Quelle | Inhalt |
 |---|---|
-| `/log` | Ereignisse/Sekunde: fps, `nm`/`inc`/`lost`, Heap, RSSI, Zuschauer + Backtrace bei Absturz |
-| `/status` | JSON: alle Zähler seit Start |
+| `/status` | JSON: alle Zähler seit Start, `last_crash` = Backtrace des letzten Absturzes |
+| serielle Konsole | Ereignisse (`/log` und `/sensor` wurden entfernt, um ~6 KB Heap zu sparen) |
 | `stalls_loss` | Aussetzer nach Paketverlust → WLAN-Signal schwach |
 | `stalls_clean` | Aussetzer ohne Paketverlust → Otoskop pausiert selbst |
 
 ---
 
-## 11. LED-Steuerung (neu, ungetestet)
+## 11. LED und Akku (neu, am eigenen Gerät ungetestet)
 
-Befehlstyp `0x0A` (SetLed) ist im i4season-Protokoll dokumentiert
-([Fyfar/ms5-wifi-microscope](https://github.com/Fyfar/ms5-wifi-microscope),
-[king-cake/otoscope-windows](https://github.com/king-cake/otoscope-windows)).
+Nach [king-cake/otoscope-windows docs/i4season-protocol.md](https://github.com/king-cake/otoscope-windows/blob/master/docs/i4season-protocol.md):
 
-Implementiert in der Firmware:
-- `POST /led/1` → LED an
-- `POST /led/0` → LED aus
-- LED-State in `/status` als `"led": true/false`
-- Button (Lampen-Symbol) auf der Startseite (`/`)
+- **LED:** Befehl `0x000A` an **UDP 10005** mit 3 Byte (`11 01 64` = an, `11 00 00` = aus). Die
+  Kamera antwortet mit dem neuen Zustand. Die Firmware wiederholt den Befehl bis zu 5× im Abstand
+  von 300 ms, bis die Antwort kommt. Erst dann zeigt die Startseite die LED als an bzw. aus.
+  (Eine frühere Version schickte 1 Byte an Port 10006, das war falsch.)
+- **Akku:** aus der Devinfo-Antwort beim Handshake (Byte `0x78 >> 1`) und aus dem Status-Push, den
+  die Kamera etwa 1× pro Sekunde an UDP 10007 schickt. Bit 0 bedeutet vermutlich „lädt“.
 
-Am Soulear-Gerät noch nicht getestet. Das Gerät könnte den Befehl ignorieren oder
-anders auslegen als dokumentiert. Protokoll-Payload: 1 Byte (`0x01`=an, `0x00`=aus).
+Anzeige auf der Startseite, in `/cameras.json` (`battery`, `charging`, `led`) und in `/status`.
 
 ---
 
@@ -366,12 +370,12 @@ anders auslegen als dokumentiert. Protokoll-Payload: 1 Byte (`0x01`=an, `0x00`=a
 
 | Idee | Quelle/Hinweis |
 |---|---|
-| LED-Steuerung am Gerät testen | Befehl 0x0A, ggf. Payload-Format prüfen |
+| LED und Akku am Gerät testen | siehe Abschnitt 11 |
+| Auflösung für 720p-Mikroskope senken (`0x0E` SetCameraConfig) | spart RAM; Vorsicht, Moduswechsel kann den Encoder blockieren (MS5) |
 | Auflösungsabfrage (`GetCameraConfig`, 0x0D) | Vorsicht: Moduswechsel kann Encoder blockieren (bei MS5 beobachtet) |
 | WT32-ETH01 in Betrieb nehmen (100 Mbit, günstiger) | Multi-Platform bereits implementiert |
 | Regelmäßige Pausen des Otoskops weiter beobachten | Alle ~25 s, Ursache unklar |
 | Home Assistant einrichten | `platform: mjpeg`, URL `/stream` |
-| Diagnose-Endpunkte optional machen (`/crashtest`, `/sensor`) | Als Build-Flag in `config.h` |
 | Multi-Cam-Proxy (Linux, mehrere Kameras gleichzeitig) | Konzept in [Handover.md](Handover.md) Abschnitt 4; andere Familien: EarFairy, JEGOAT, Xylla, MaxSee |
 
 ---
