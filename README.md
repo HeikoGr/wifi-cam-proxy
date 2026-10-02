@@ -1,5 +1,8 @@
 # WiFi-Cam-Proxy
 
+> **Note:** the code and the documentation of this project were written by an AI (Claude, Anthropic)
+> under human direction and tested on real hardware. Review it before relying on it.
+
 Cheap Wi-Fi otoscopes, ear-cleaner cameras and Wi-Fi microscopes open their own Wi-Fi and speak
 proprietary but unencrypted UDP protocols. Viewing them normally requires the vendor's app,
 sometimes with a cloud licence check.
@@ -224,6 +227,14 @@ A complete link collection with a protocol overview of all known families is in
 
 ## Licence and notes
 
+The code of this project is under the [MIT License](LICENSE).
+
+The firmware is built with libraries under their own licences, which are not part of this
+repository but end up in the built firmware: the Arduino core for the ESP32 (LGPL-2.1) and ESP-IDF
+(Apache-2.0), on the CYD also [LovyanGFX](https://github.com/lovyan03/LovyanGFX) (MIT and BSD-2-Clause,
+fonts with their own licences) and [JPEGDEC](https://github.com/bitbank2/JPEGDEC) (Apache-2.0).
+Anyone distributing built firmware images must include their licence notices.
+
 Independent interoperability research on our own hardware, not affiliated with the manufacturers.
-Several of the linked projects are under the GPL. Anyone taking code from there rather than just
-protocol knowledge must take that into account.
+Several of the linked projects are under the GPL. Only protocol knowledge was taken from them, no
+code (see above); anyone taking code from there must take that into account.
