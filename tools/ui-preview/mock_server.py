@@ -114,6 +114,8 @@ class State:
             "preferred": self.preferred,
             "pref_proto": "auto",
             "autoscan": self.autoscan,
+            "protocols": [["auto", "automatic"], ["i4season", "i4season (Soulear, MS5)"],
+                          ["jhcmd", "MaxSee/JoyHonest/MAX-VIEW (JHCMD)"]],
             "recognized": 2,
             "scan_age_s": 12,
             "orientation": c,

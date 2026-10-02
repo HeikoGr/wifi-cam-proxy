@@ -118,6 +118,9 @@ void diagCopy(char *out, size_t len) {
   portEXIT_CRITICAL(&diagMux);
 }
 
+const CamProto PROTO_CHOICES[] = {CamProto::Auto, CamProto::I4season, CamProto::Jhcmd};
+const int PROTO_CHOICE_COUNT = sizeof(PROTO_CHOICES) / sizeof(PROTO_CHOICES[0]);
+
 const char *protoKey(CamProto p) {
   switch (p) {
     case CamProto::I4season: return "i4season";
@@ -571,7 +574,11 @@ size_t cameraJson(char *out, size_t len) {
   add(jsonStr(out + o, room(), product));
   add(snprintf(out + o, room(), ",\"firmware\":"));
   add(jsonStr(out + o, room(), firmware));
-  add(snprintf(out + o, room(), ",\"networks\":["));
+  add(snprintf(out + o, room(), ",\"protocols\":["));
+  for (int i = 0; i < PROTO_CHOICE_COUNT; i++)
+    add(snprintf(out + o, room(), "%s[\"%s\",\"%s\"]", i ? "," : "", protoKey(PROTO_CHOICES[i]),
+                 protoName(PROTO_CHOICES[i])));
+  add(snprintf(out + o, room(), "],\"networks\":["));
   for (int i = 0; i < scanCount; i++) {
     add(snprintf(out + o, room(), "%s{\"ssid\":", i ? "," : ""));
     add(jsonStr(out + o, room(), scanList[i].ssid));

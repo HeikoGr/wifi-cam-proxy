@@ -27,6 +27,10 @@ const char *protoName(CamProto p);  // for the web UI
 CamProto protoFromKey(const char *key);
 // Recognises the camera family by its SSID (table in camera.cpp), None = unknown
 CamProto protoForSsid(const char *ssid);
+// Protocols the user can choose (web UI /cameras, CYD camera choice), "automatic"
+// first. A new protocol only has to be added here (and in protoKey/protoName).
+extern const CamProto PROTO_CHOICES[];
+extern const int PROTO_CHOICE_COUNT;
 
 // A connected camera. Runs entirely in the video task.
 class CamSession {

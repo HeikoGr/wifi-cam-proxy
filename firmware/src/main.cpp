@@ -575,9 +575,9 @@ static void handleCameraSelect(int fd, const char *req, const uint8_t *body, siz
 }
 
 static void handleCamerasJson(int fd) {
-  std::unique_ptr<char[]> json(new (std::nothrow) char[2048]);
+  std::unique_ptr<char[]> json(new (std::nothrow) char[3072]);
   if (!json) return sendText(fd, 503, "Service Unavailable", "Out of memory");
-  size_t n = cameraJson(json.get(), 2048);
+  size_t n = cameraJson(json.get(), 3072);
   sendResponse(fd, 200, "OK", "application/json", json.get(), n);
 }
 

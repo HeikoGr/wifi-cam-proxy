@@ -77,7 +77,8 @@ With `pio run -e cyd -t upload` the CYD becomes a standalone display device: it 
 camera like the bridge and shows the centre 320×240 crop at full resolution (zoom 1:1).
 Alternatively it shows the whole image scaled down (480×480 → 240×240). If the processor is slower
 than the camera, frames drop out by themselves; the newest frame is always shown. Tapping the
-image opens the menu with LED, zoom, camera choice and brightness. There is no orientation
+image opens the menu with LED, zoom, camera choice and brightness. In the camera choice a button
+switches the protocol for the next connection (automatic → i4season → JHCMD). There is no orientation
 correction: arbitrary angles would need a frame buffer that does not fit without PSRAM, and in
 90° steps the image jumped back and forth in the hand. 720p microscopes fail on RAM just like with the
 bridge. Code: [firmware/src/main_cyd.cpp](firmware/src/main_cyd.cpp).

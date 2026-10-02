@@ -278,7 +278,7 @@ struct Button {
   char label[24];
   bool enabled;
 };
-static Button buttons[8];  // menu: 7, camera choice: 4 networks + 2
+static Button buttons[8];  // menu: 5, camera choice: 4 networks + 3
 static int buttonCount = 0;
 
 static void addButton(int x, int y, int w, int h, const char *label, bool enabled = true) {
@@ -323,6 +323,7 @@ static void showMenu() {
 
 static ScanEntry nets[5];
 static int netCount = 0;
+static int protoChoice = 0;  // index into PROTO_CHOICES for the camera choice
 
 static void showChoose() {
   screen = Screen::Choose;
@@ -352,10 +353,11 @@ static void showChoose() {
     lcd.setTextColor(TFT_LIGHTGREY);
     lcd.drawString("No open networks", 160, 90);
   }
-  // Fixed slots for "Rescan"/"Back" so the network indices stay 0..3
+  // Fixed slots for "Rescan"/"Back"/protocol so the network indices stay 0..3
   while (buttonCount < 4) buttons[buttonCount++] = {0, 0, 0, 0, "", false};
-  addButton(6, 194, 152, 40, "Rescan");
-  addButton(162, 194, 152, 40, "Back");
+  addButton(6, 194, 96, 40, "Rescan");
+  addButton(218, 194, 96, 40, "Back");
+  addButton(106, 194, 108, 40, protoKey(PROTO_CHOICES[protoChoice]));  // protocol for the next connect
 }
 
 static void showLive() {
@@ -383,7 +385,7 @@ static void onTouch(int tx, int ty) {
     }
   } else if (screen == Screen::Choose) {
     if (b >= 0 && b < netCount) {
-      cameraSelect(nets[b].ssid, "", CamProto::Auto);
+      cameraSelect(nets[b].ssid, "", PROTO_CHOICES[protoChoice]);
       return showLive();
     }
     if (b == 4) {
@@ -395,6 +397,10 @@ static void onTouch(int tx, int ty) {
       lcd.drawString(" scanning... ", 160, 182);
     }
     if (b == 5) return showLive();
+    if (b == 6) {  // next protocol (auto -> i4season -> jhcmd -> ...)
+      protoChoice = (protoChoice + 1) % PROTO_CHOICE_COUNT;
+      return showChoose();
+    }
   }
 }
 

@@ -614,16 +614,17 @@ const STATE={connected:'connected',connecting:'connecting…',scanning:'scanning
 function sig(r){const n=r>-55?4:r>-65?3:r>-75?2:1;let h='<span class=sig title="'+r+' dBm">';
   for(let i=1;i<=4;i++)h+='<i class='+(i<=n?'on':'')+' style="height:'+(i*3)+'px"></i>';return h+'</span>'}
 // protocol per network: the choice survives the 4 s refresh; default for the active
-// camera is its current protocol, otherwise "automatic"
-const PROTOS=[['auto','automatic'],['i4season','i4season'],['jhcmd','JHCMD']], chosen={};
+// camera is its current protocol, otherwise "automatic". The list comes from the
+// firmware (cameras.json "protocols": [key, name]).
+let PROTOS=[['auto','automatic'],['i4season','i4season'],['jhcmd','JHCMD']];const chosen={};
 function protoOf(n,c){return chosen[n.ssid]||(n.ssid===c.ssid&&c.proto?c.proto:'auto')}
 function row(n,c){
   const cur=n.ssid===c.ssid&&c.state==='connected', p=protoOf(n,c);
   return '<tr><td class='+(cur?'cur':'')+'>'+esc(n.ssid)+(n.ssid===c.preferred?' ★':'')+
     (cur?' <span class="ok small">active</span>':'')+'</td><td>'+sig(n.rssi)+
     '<span class="muted small">'+n.rssi+' dBm</span></td><td class="muted small">'+(n.open?'open':'&#128274;')+
-    '</td><td><select data-p="'+esc(n.ssid)+'">'+PROTOS.map(([k,l])=>'<option value='+k+(k===p?' selected':'')+'>'+l+
-    '</option>').join('')+'</select></td><td><button data-s="'+esc(n.ssid)+'">'+(cur?'Reconnect':'Connect')+
+    '</td><td><select data-p="'+esc(n.ssid)+'">'+PROTOS.map(([k,l])=>'<option value='+k+(k===p?' selected':'')+
+    ' title="'+esc(l)+'">'+(k==='auto'?'automatic':k)+'</option>').join('')+'</select></td><td><button data-s="'+esc(n.ssid)+'">'+(cur?'Reconnect':'Connect')+
     '</button></td></tr>';
 }
 async function load(){
@@ -638,6 +639,7 @@ async function load(){
     ['Automatic scan',c.autoscan?'on':'off'],
     ['Last scan',c.scan_age_s<0?'none yet':c.scan_age_s+' s ago']]);
   $('autoscan').checked=!!c.autoscan;
+  if(c.protocols&&c.protocols.length)PROTOS=c.protocols;
   // do not rebuild the tables while a protocol list is open (it would close)
   if(document.activeElement&&document.activeElement.matches('select[data-p]'))return;
   const rec=c.networks.filter(n=>n.proto), oth=c.networks.filter(n=>!n.proto);

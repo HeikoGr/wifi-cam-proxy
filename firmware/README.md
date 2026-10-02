@@ -32,7 +32,7 @@ The firmware looks for cameras with a Wi-Fi scan. The name patterns are in `SSID
 
 ![Camera selection](../docs/screenshots/cameras.png)
 
-Under `/cameras` you can also choose an unknown network. With the protocol "automatic" the rule is: gateway `192.168.29.1` always means MaxSee/JHCMD, otherwise the SSID pattern decides, else i4season. Each network row has its own protocol choice and a "Connect"/"Reconnect" button. "Automatic scan" can be switched off: the device then only reconnects to the remembered camera and scans only on "Rescan". A camera password is possible as well.
+Under `/cameras` you can also choose an unknown network. With the protocol "automatic" the rule is: gateway `192.168.29.1` always means MaxSee/JHCMD, otherwise the SSID pattern decides, else i4season. Each network row has its own protocol choice and a "Connect"/"Reconnect" button. "Automatic scan" can be switched off: the device then only reconnects to the remembered camera and scans only on "Rescan". The selectable protocols come from `PROTO_CHOICES` in `src/camera.cpp`, so a new protocol shows up in the web UI and on the CYD by itself. A camera password is possible as well.
 
 | Protocol | File | Video | Extras |
 |---|---|---|---|
