@@ -1,0 +1,25 @@
+# Build-Artefakte PlatformIO
+firmware/.pio/
+
+# PlatformIO managed components (heruntergeladene Abhängigkeiten, wie node_modules)
+firmware/managed_components/
+
+# Zugangsdaten – NIEMALS einchecken
+firmware/include/secrets.h
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+*.log
+
+# VS Code workspace-spezifische Einstellungen (optional)
+.vscode/*.log
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
