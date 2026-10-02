@@ -1,3 +1,5 @@
 {
-    "cmake.sourceDirectory": "/home/develop/wifi-cam-proxy/firmware/.dummy"
+    "cmake.sourceDirectory": "/home/develop/wifi-cam-proxy/firmware/.dummy",
+    "tasks.statusbar.limit": 4,
+    "tasks.statusbar.select.label": "$(list-unordered) More"
 }

@@ -2,31 +2,41 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Build (CYD)",
+      "type": "shell",
+      "command": "pio run -e cyd",
+      "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" }, "statusbar": { "label": "$(tools) CYD", "detail": "Build (CYD)" } },
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "problemMatcher": []
+    },
+    {
       "label": "Build (ZB-GW03)",
       "type": "shell",
       "command": "pio run -e zb-gw03",
-      "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" } },
+      "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" }, "statusbar": { "label": "$(tools) ZB", "detail": "Build (ZB-GW03)" } },
       "group": { "kind": "build", "isDefault": true },
       "presentation": { "reveal": "always", "panel": "shared", "clear": true },
       "problemMatcher": []
     },
     {
-      "label": "Build (WT32-ETH01)",
+      "label": "Flash OTA HTTP (otoskop.local)",
       "type": "shell",
-      "command": "pio run -e wt32-eth01",
-      "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" } },
+      "command": "pio run -e zb-gw03 && curl -f --data-binary @.pio/build/zb-gw03/firmware.bin -H 'Content-Type: application/octet-stream' http://otoskop.local/update",
+      "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" }, "statusbar": { "label": "$(cloud-upload) ZB OTA", "detail": "Flash OTA HTTP (otoskop.local)" } },
       "group": "build",
-      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "presentation": { "reveal": "always", "panel": "shared" },
       "problemMatcher": []
     },
     {
-      "label": "Build (CYD)",
+      "label": "Serial Monitor",
       "type": "shell",
-      "command": "pio run -e cyd",
-      "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" } },
-      "group": "build",
-      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
-      "problemMatcher": []
+      "command": "pio device monitor",
+      "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" }, "statusbar": { "label": "$(terminal) Monitor", "detail": "Serial Monitor" } },
+      "group": "test",
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "problemMatcher": [],
+      "isBackground": true
     },
     {
       "label": "Flash USB (CYD)",
@@ -47,40 +57,22 @@
       "problemMatcher": []
     },
     {
-      "label": "Set up build environment",
-      "type": "shell",
-      "command": "./setup-build-env.sh",
-      "options": { "cwd": "${workspaceFolder}" },
-      "presentation": { "reveal": "always", "panel": "shared" },
-      "problemMatcher": []
-    },
-    {
-      "label": "Flash OTA HTTP (otoskop.local)",
-      "type": "shell",
-      "command": "pio run -e zb-gw03-http -t upload",
-      "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" } },
-      "group": "build",
-      "presentation": { "reveal": "always", "panel": "shared" },
-      "problemMatcher": []
-    },
-    {
       "label": "Flash OTA espota (otoskop.local)",
       "type": "shell",
-      "command": "pio run -e zb-gw03-ota -t upload",
+      "command": "pio run -e zb-gw03 && python3 ~/.platformio/packages/framework-arduinoespressif32/tools/espota.py -i otoskop.local -p 3232 -f .pio/build/zb-gw03/firmware.bin",
       "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" } },
       "group": "build",
       "presentation": { "reveal": "always", "panel": "shared" },
       "problemMatcher": []
     },
     {
-      "label": "Serial Monitor",
+      "label": "Build (WT32-ETH01)",
       "type": "shell",
-      "command": "pio device monitor",
+      "command": "pio run -e wt32-eth01",
       "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" } },
-      "group": "test",
-      "presentation": { "reveal": "always", "panel": "dedicated" },
-      "problemMatcher": [],
-      "isBackground": true
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "problemMatcher": []
     },
     {
       "label": "Clean",
@@ -88,6 +80,14 @@
       "command": "pio run -e zb-gw03 -t clean",
       "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" } },
       "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Set up build environment",
+      "type": "shell",
+      "command": "./setup-build-env.sh",
+      "options": { "cwd": "${workspaceFolder}" },
       "presentation": { "reveal": "always", "panel": "shared" },
       "problemMatcher": []
     }
