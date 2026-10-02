@@ -79,6 +79,35 @@ When a new frame does not fit, the stored one is given up if nobody is sending i
 
 Pins and board selection are in [firmware/include/config.h](firmware/include/config.h).
 
+### Own build on a breadboard (ESP32 DevKit + LAN8720 module, not tested)
+
+The chip combination is the same as on the WT32-ETH01 (ESP32 + LAN8720 with a 50 MHz clock on
+GPIO0), so the `wt32-eth01` environment is the one to use. The ESP32's RMII pins are fixed by the
+chip, the two management pins and the power pin are set in `config.h`:
+
+| LAN8720 module | ESP32 | |
+|---|---|---|
+| TXD0, TX_EN, TXD1 | GPIO19, GPIO21, GPIO22 | fixed (RMII) |
+| RXD0, RXD1, CRS_DV | GPIO25, GPIO26, GPIO27 | fixed (RMII) |
+| nINT/REFCLKO (50 MHz out) | GPIO0 | clock input, `ETH_CLOCK_GPIO0_IN` |
+| MDC, MDIO | GPIO23, GPIO18 | `ETH_MDC_GPIO`, `ETH_MDIO_GPIO` |
+| (oscillator power) | GPIO16 | `ETH_POWER_GPIO`, see below |
+| VCC, GND | 3V3, GND | |
+
+What to watch out for:
+
+- **Boot and the clock on GPIO0:** GPIO0 selects the boot mode at reset. A module that clocks GPIO0
+  all the time can make the ESP32 start in download mode now and then. The WT32-ETH01 avoids this
+  by switching its oscillator with GPIO16. A bare module has no such switch: either supply its VCC
+  through a transistor driven by GPIO16 (the module draws more than a GPIO can give), or pull the
+  clock wire off GPIO0 for the reset.
+- **PHY address:** `config.h` uses address 1 (as the WT32-ETH01). Many modules answer on 0: if
+  there is no link, set `ETH_PHY_ADDR_GW` to 0 (or -1 to detect it).
+- **Wires:** RMII runs at 50 MHz. Keep the wires short, with a good common ground, or the link may
+  stay down or drop packets.
+- **Not the ZB-GW03 variant:** it needs the ESP32 to generate the clock on GPIO17 into a PHY
+  without its own crystal. A module with a crystal cannot take that.
+
 ### CYD as a camera display
 
 With `pio run -e cyd -t upload` the CYD becomes a standalone display device: it looks for the
@@ -110,20 +139,80 @@ measured. Measurements: [project documentation, section 4.6](docs/project-docume
 Without a local USB port, `firmware/.pio/build/cyd/firmware.factory.bin` can also be flashed at
 address 0x0 with a web serial flasher (e.g. esptool-js).
 
-## Quick start
+## Installation and build
+
+You need a computer with Linux or macOS (Debian/Ubuntu tested), `git`, `python3` with `venv`, about
+2 GB of disk space and an internet connection for the first build. On Windows use WSL2, or install
+PlatformIO yourself (`pip install platformio`) and skip step 2. Flashing needs a USB-UART adapter or
+a board with USB; a build in WSL can be flashed with a web serial flasher (see step 5).
+
+**1. Get the code**
 
 ```bash
-./setup-build-env.sh              # PlatformIO in .venv, create secrets.h, load the toolchain
-source .venv/bin/activate
-cd firmware
-pio run -e zb-gw03                # build (first build ~5 min: ESP-IDF is rebuilt)
-pio run -e zb-gw03 -t upload      # first flash via USB-UART (GPIO0 to GND at power-on)
-pio run -e zb-gw03-http -t upload # afterwards over the LAN
+git clone https://github.com/HeikoGr/wifi-cam-proxy.git
+cd wifi-cam-proxy
 ```
 
-In `firmware/include/secrets.h` you can optionally set an OTA password and the password of the
-setup AP (default `wificam-setup`). You set the home Wi-Fi for rescue mode on the device under
-`/wifi-setup`. Afterwards the device is reachable at **http://wifi-cam.local/**.
+**2. Set up the build environment** (once)
+
+```bash
+./setup-build-env.sh      # PlatformIO in .venv, creates firmware/include/secrets.h, loads the toolchain (~1 GB)
+source .venv/bin/activate # then `pio` is available directly
+```
+
+**3. Optional settings:** in `firmware/include/secrets.h` you can set an OTA password and the password
+of the setup access point (default `wificam-setup`). Pins, timeouts and defaults are in
+[firmware/include/config.h](firmware/include/config.h). The home Wi-Fi for rescue mode is set on the
+device later, under `/wifi-setup`.
+
+**4. Build** the environment for your board (the first build takes about 5 minutes: ESP-IDF is rebuilt
+with our settings, later builds take seconds):
+
+```bash
+cd firmware
+pio run -e zb-gw03        # or: wt32-eth01, cyd
+```
+
+The result is in `firmware/.pio/build/<env>/`: `firmware.factory.bin` is the complete image
+(bootloader, partitions, firmware) for the first flash, `firmware.bin` is the application alone for
+updates.
+
+**5. First flash**
+
+- **USB-UART adapter (ZB-GW03, WT32-ETH01):** connect TX, RX, GND and 3V3 (TX↔RX crossed, 3.3 V
+  only). Pull GPIO0 to GND at power-on so the ESP32 starts in its bootloader, then:
+  ```bash
+  pio run -e zb-gw03 -t upload --upload-port /dev/ttyUSB0
+  ```
+  Remove the GPIO0 jumper and restart. On Linux your user must be in the `dialout` group
+  (`sudo usermod -aG dialout $USER`, then log in again).
+- **CYD:** plug in USB, `pio run -e cyd -t upload` (auto-reset, no jumper). The CYD also needs a flash
+  over USB for changes of the bootloader settings (flash speed).
+- **Without a serial port on the build machine:** flash `firmware.factory.bin` at address **0x0**
+  from another computer with a web serial flasher, e.g. [ESP Tool](https://espressif.github.io/esptool-js/)
+  (Chrome or Edge).
+
+**6. First start**
+
+The ZB-GW03 and WT32-ETH01 get their address by DHCP over Ethernet: open **http://wifi-cam.local/**
+(or the address your router shows, or the one in the serial output of `pio device monitor`).
+Without Ethernet the device opens the access point `WiFi-Cam-XXXX` after 30 s (rescue mode, see
+[firmware/README.md](firmware/README.md#rescue-mode)). Switch the camera on: it is found by its Wi-Fi
+name and appears under `/cameras`.
+
+**7. Further updates** need no cable:
+
+```bash
+pio run -e zb-gw03-http -t upload   # over the LAN via HTTP (or in the browser: /update with firmware.bin)
+```
+
+**Tests without hardware:** `tools/host-tests/run.sh` runs the camera code against a real MAX-VIEW frame,
+[tools/ui-preview](tools/ui-preview/) shows the web UI with simulated data and
+[tools/cyd-preview](tools/cyd-preview/) draws the CYD screens.
+
+## Usage
+
+The device serves these pages at **http://wifi-cam.local/**:
 
 | Address | Purpose |
 |---|---|
