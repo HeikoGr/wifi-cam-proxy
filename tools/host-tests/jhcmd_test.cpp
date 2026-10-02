@@ -74,9 +74,15 @@ int main(int argc, char **argv) {
     to.sin_port = htons(20001);
     msg(std::string("FDWN\x20\x00\x0e\x00\x01\x00\x1e", 11));
     bool ok4 = telemetry.led == 1 && ledLevel == 30;
-    printf("%-22s button 60 %d, button off %d, info reply %d (product '%s'), FDWN 30 %d\n", "light button", ok1, ok2,
-           ok3, telemetry.product, ok4);
-    if (!ok1 || !ok2 || !ok3 || !ok4) fails++;
+    // FDWN status answer (48 bytes): byte 32 is taken as the raw battery value
+    std::string st("FDWN\x00\x00\x01\x00\x1a\x00\x00\x05", 12); st.resize(48, 0); st[32] = (char)0x8a;
+    msg(st);
+    bool ok5 = telemetry.batteryRaw == 0x8a;
+    st[32] = (char)0x89; msg(st);
+    bool ok6 = telemetry.batteryRaw == 0x89;
+    printf("%-22s button 60 %d, button off %d, info reply %d (product '%s'), FDWN 30 %d, status raw %d/%d\n", "light button",
+           ok1, ok2, ok3, telemetry.product, ok4, ok5, ok6);
+    if (!ok1 || !ok2 || !ok3 || !ok4 || !ok5 || !ok6) fails++;
   }
   delete s;
   printf(fails ? "FAIL\n" : "OK\n");

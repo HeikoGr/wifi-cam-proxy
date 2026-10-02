@@ -69,6 +69,7 @@ struct CamTelemetry {
   std::atomic<int16_t> accX{0}, accY{0}, accZ{0};
   std::atomic<uint32_t> accSeq{0};
   std::atomic<int8_t> battery{-1};          // battery in %
+  std::atomic<int16_t> batteryRaw{-1};      // raw value of cameras whose scale is not known yet (JHCMD)
   std::atomic<int8_t> charging{-1};         // 1 = charging (meaning uncertain)
   std::atomic<int8_t> led{-1};              // last state confirmed by the camera
   std::atomic<bool> ledSupported{false};

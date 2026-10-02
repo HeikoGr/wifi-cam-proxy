@@ -43,6 +43,14 @@ const uint8_t CMD_STOP[] = {'J', 'H', 'C', 'M', 'D', 0xD0, 0x02};
 // Only the button is reported: commands from the client (20 02) are not.
 // The same level also goes as "FDWN" 20 00 0e 00 01 00 <level> to port 20001: both are
 // received, so a message is only missed if both UDP packets get lost (weak Wi-Fi).
+// Status query of the app, every 5 s: "FDWN" 00 00 01 00 00 00 to port 20001; the camera
+// answers to the client's port 20001 with 48 bytes: "FDWN" 00 00 01 00 1a 00 00 05 ...,
+// byte 32 = 0x8a, 0x89 in two consecutive answers while the app's battery display went
+// from 50 to 40 % (probably the battery as an 8-bit value), at 40 the camera's MAC.
+const uint8_t FDWN_STATUS_REQ[] = {'F', 'D', 'W', 'N', 0x00, 0x00, 0x01, 0x00, 0x00, 0x00};
+const size_t FDWN_STATUS_LEN = 48;
+const size_t FDWN_BATTERY_BYTE = 32;
+const uint32_t FDWN_POLL_MS = 5000;
 
 class JhcmdSession : public CamSession {
  public:
@@ -114,6 +122,15 @@ class JhcmdSession : public CamSession {
       if (r >= 11 && !memcmp(reply, "FDWN", 4) && reply[4] == 0x20 && reply[6] == 0x0E) {
         const uint8_t m[8] = {'J', 'H', 'C', 'M', 'D', 0x10, 0x20, reply[10]};
         handleMessage(m, sizeof(m));
+      } else if (r == (int)FDWN_STATUS_LEN && !memcmp(reply, "FDWN", 4) && reply[6] == 0x01) {
+        handleStatus(reply);
+      }
+      // Status query like the app does (needs the video running = the camera is serving us)
+      if (running_ && cameraLinkUp() && millis() - lastStatusReq_ >= FDWN_POLL_MS) {
+        lastStatusReq_ = millis();
+        sockaddr_in to = camAddr_;
+        to.sin_port = htons(FDWN_PORT);
+        sendto(fdwn_, FDWN_STATUS_REQ, sizeof(FDWN_STATUS_REQ), 0, (sockaddr *)&to, sizeof(to));
       }
     }
     // Experiment from /camdiag/send, sent from the command socket (port 20000)
@@ -316,6 +333,20 @@ class JhcmdSession : public CamSession {
     }
   }
 
+  // 48-byte status answer on 20001: byte 32 = battery (8-bit value, scale not known yet).
+  // Logged whenever something in it changes.
+  void handleStatus(const uint8_t *m) {
+    telemetry.batteryRaw = m[FDWN_BATTERY_BYTE];
+    if (haveStatus_ && !memcmp(lastStatus_, m, FDWN_STATUS_LEN)) return;
+    haveStatus_ = true;
+    memcpy(lastStatus_, m, FDWN_STATUS_LEN);
+    char hex[24 * 3 + 1];
+    for (int half = 0; half < 2; half++) {
+      for (int i = 0; i < 24; i++) snprintf(hex + i * 3, 4, "%02x ", m[half * 24 + i]);
+      diagLog("[jhcmd] %lu ms: FDWN status +%02d: %s", millis(), half * 24, hex);
+    }
+  }
+
   static void copyName(char *dst, size_t cap, const uint8_t *src, int n) {
     int i = 0;
     for (; i < n && i + 1 < (int)cap && src[i]; i++) dst[i] = (src[i] >= 32 && src[i] < 127) ? src[i] : '?';
@@ -369,6 +400,9 @@ class JhcmdSession : public CamSession {
   }
 
   int cmd_ = -1, vid_ = -1, fdwn_ = -1;
+  uint32_t lastStatusReq_ = 0;
+  bool haveStatus_ = false;
+  uint8_t lastStatus_[FDWN_STATUS_LEN];
   sockaddr_in camAddr_ = {};
   struct Last {
     int len = 0;
