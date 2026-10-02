@@ -81,10 +81,11 @@ const store={get(k,d){try{const v=localStorage.getItem(k);return v===null?d:JSON
 
 // Calibration (stored on the device): ellipse (offset/scale per axis), optional
 // correction table from quarter turns, zero point, smoothing
-// base=-90: the camera image is mounted rotated by 90° in the probe and is always
-// rotated like this (determined on the device). zero = sensor angle in the normal
-// position of the probe; orientation correction additionally compensates deviations.
-const DEFAULT_CAL={v:2,base:-90,ox:0,oy:0,sx:1,sy:1,zero:0,smooth:0.6,pts:null};
+// zero = sensor angle in the normal position of the probe; orientation correction
+// compensates deviations from it. The fixed rotation of the image (otoscope: -90°, the
+// camera sits turned in the probe) comes from the device per camera model
+// (/cameras.json "rotation"); "base" in older stored calibrations is ignored.
+const DEFAULT_CAL={v:2,ox:0,oy:0,sx:1,sy:1,zero:0,smooth:0.6,pts:null};
 async function loadCal(){
   try{
     const r=await fetch('/calibration',{cache:'no-store'}), c=await r.json();
@@ -117,8 +118,8 @@ function correct(a,c){
 }
 // orientation relative to the zero point; the image is rotated by its negative
 function probeAngle(x,y,c){return norm(correct(sensorAngle(x,y,c),c)-c.zero)}
-// image rotation: always the base rotation, with orientation correction also -angle
-function imageRotation(on,sm,c){return c.base-(on&&sm.have?probeAngle(sm.x,sm.y,c):0)}
+// image rotation: always the camera's rotation (base), with orientation correction also -angle
+function imageRotation(on,sm,c,base){return base-(on&&sm.have?probeAngle(sm.x,sm.y,c):0)}
 
 // smooths the vector instead of the angle (no jump at 180/-180)
 class Smoother{
@@ -183,7 +184,7 @@ static const char INDEX_HTML[] = PAGE_HEAD("WiFi-Cam")
 <p id='ledMsg' class='muted small' style='text-align:center'></p>
 </main>
 <script src='/app.js'></script><script>
-let cal=Object.assign({},DEFAULT_CAL), hasOri=true;
+let cal=Object.assign({},DEFAULT_CAL), hasOri=true, camRot=0;  // camRot: /cameras.json rotation
 const view={z:1,px:0,py:0}, sm=new Smoother(), rot=rotator($('wrap'),view);
 // zoom 2x: pan the crop by dragging, at most up to the image edge
 function setZoom(z){view.z=z;view.px=view.py=0;$('zoom').innerHTML=z>1?'1&times;':'2&times;';$('view').className=z>1?'z':'';rot()}
@@ -204,7 +205,7 @@ $('round').onchange=()=>{store.set('round',$('round').checked);applyRound()};
 applyRound();
 $('on').checked=store.get('on',false);
 // without an orientation sensor (e.g. microscope): image unrotated, orientation controls off
-function apply(){rot(hasOri?imageRotation($('on').checked,sm,cal):0)}
+function apply(){rot(hasOri?imageRotation($('on').checked,sm,cal,camRot):camRot)}
 $('on').onchange=()=>{store.set('on',$('on').checked);apply()};
 $('zero').onclick=async()=>{
   if(!sm.have)return;
@@ -247,6 +248,7 @@ async function info(){
   if(c.state==='connected'){
     const ori=c.orientation||(c.proto==='i4season'&&!c.width);
     if(ori!==hasOri){hasOri=ori;applyRound();$('ori').hidden=!ori;$('calLink').hidden=!ori;apply()}
+    if(c.rotation!==undefined&&c.rotation!==camRot){camRot=c.rotation;apply()}
     if(ori)startOri();
   }
   $('ledBtn').hidden=!c.led_supported;
@@ -349,7 +351,8 @@ For fine-tuning, hold the probe so the image is the right way up, then:</p>
 </div>
 </main>
 <script src='/app.js'></script><script>
-let W=Object.assign({},DEFAULT_CAL), dirty=false;
+let W=Object.assign({},DEFAULT_CAL), dirty=false, camRot=-90;  // camRot: /cameras.json rotation
+camInfo().then(c=>{if(c&&c.rotation!==undefined){camRot=c.rotation;render()}});
 const sm=new Smoother(), rot=rotator($('wrap'));
 let last=null, recent=[];           // latest raw values
 let rec=false, pts=[], recT=[];     // circle recording (points, timestamps)
@@ -370,9 +373,9 @@ function changed(){dirty=true;$('msg').textContent='Unsaved changes.';$('msg').c
 function render(){
   if(sm.have){
     const l=probeAngle(sm.x,sm.y,W);
-    rot(imageRotation(true,sm,W));
+    rot(imageRotation(true,sm,W,camRot));
     $('needle').setAttribute('transform','rotate('+l.toFixed(1)+')');
-  }else rot(W.base);
+  }else rot(camRot);
   if(last){
     const g=Math.hypot(last.x,last.y,last.z);
     kv($('vals'),[['raw','x '+last.x+' · y '+last.y+' · z '+last.z+' · |g| '+g.toFixed(0)],

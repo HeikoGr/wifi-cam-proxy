@@ -54,7 +54,8 @@
 #define LED_RED_GPIO       -1
 #define ZIGBEE_NRST_GPIO   -1
 #define CYD_RGB_LED_PINS   {4, 16, 17}     // RGB LED, active LOW: switched off at startup
-// Fixed -90° turn of the otoscope image (camera mounted rotated): direction of setRotation() (+1 / -1)
+// Direction of setRotation() that turns the image by +90° (clockwise): +1 or -1. The
+// rotation per camera model comes from cameraImageRotation() (otoscope: -90°).
 #define CYD_ROTATE_DIR     1
 #define CYD_MENU_TIMEOUT_MS 15000          // menu closes by itself
 // Display SPI clock: shorter write per frame = less visible tearing. Autodetect uses

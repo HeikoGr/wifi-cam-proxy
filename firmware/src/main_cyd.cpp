@@ -90,11 +90,12 @@ static int jpgDraw(JPEGDRAW *d) {
 }
 
 // --- Image rotation -------------------------------------------------------------
-// The otoscope camera (recognisable by its orientation sensor) is mounted rotated by
-// 90° in the probe, so its image is always turned by -90° like in the browser. Other
-// cameras (microscope etc.): image as delivered.
+// As in the browser: per camera model (cameraImageRotation(), e.g. -90 for the otoscope,
+// whose camera sits turned in the probe). The display turns in quarter turns only;
+// CYD_ROTATE_DIR is the direction of setRotation() for +90 degrees.
 static int imageRotation() {
-  return telemetry.hasOrientation ? (UI_ROT - CYD_ROTATE_DIR + 4) % 4 : UI_ROT;
+  int quarters = (cameraImageRotation() % 360 + 405) / 90 % 4;  // clockwise, rounded: 0..3
+  return ((UI_ROT + quarters * CYD_ROTATE_DIR) % 4 + 4) % 4;
 }
 
 // --- Display ----------------------------------------------------------------------

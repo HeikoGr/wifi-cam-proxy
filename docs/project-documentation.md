@@ -132,7 +132,10 @@ Protocol source: [king-cake/otoscope-windows, docs/i4season-protocol.md](https:/
 | 12–15 | `0x80 0x02 0xE0 0x01` (640/480 LE) – incorrect, the real size is 480×480 |
 
 Roll angle = `atan2(x, y)`. The axes have small offsets (x ≈ −7, y ≈ +6).
-The camera is mounted rotated by 90° in the probe → frames are always rotated by −90°.
+The camera is mounted rotated by 90° in the probe → frames are always rotated by −90°. This
+is a property of the camera model: `rotation` in `SSID_PATTERNS` (camera.cpp), reported as
+`rotation` in `/cameras.json` and used by the browser and the CYD. Unknown models: −90° if the
+camera reports an orientation sensor, else 0.
 
 ### 3.4 JHCMD (MaxSee, MAX-VIEW)
 
@@ -337,7 +340,8 @@ variant), Wi-Fi RSSI −26 to −49 dBm:
 - **Overlay** (battery, fps): sits in the side border or in a 10 px strip that the image leaves
   out at 1:1, and is only redrawn when its text changes (no flicker).
 - **No orientation correction:** removed. Arbitrary angles need a frame buffer, and in 90°
-  steps the image kept jumping in the hand. Only the fixed −90° of the otoscope camera remains.
+  steps the image kept jumping in the hand. Only the fixed rotation of the camera model remains
+  (otoscope −90°), rounded to quarter turns.
 
 Serial console (115200 baud) every 5 s:
 `[stats] received 17.2 fps, shown 8.0 fps | lost pkts 0, damaged 0, incomplete 0, RSSI -46 | draw avg 121 ms max 140 ms | battery 55% | heap 148412 (min 107600)`.
@@ -370,7 +374,7 @@ Serial console (115200 baud) every 5 s:
 | `/orientation` | GET | server-sent events: orientation sensor ~17×/s |
 | `/led/0`, `/led/1` | POST | camera LED off/on (i4season 0x0A, waits for confirmation; JHCMD: on = last brightness) |
 | `/cameras` | GET | choose camera (scan list, selection) |
-| `/cameras.json` | GET | camera state, telemetry (battery, LED, device), scan list |
+| `/cameras.json` | GET | camera state, telemetry (battery, LED, device), `rotation` of the image for display (degrees, CSS direction; per camera model), scan list |
 | `/cameras/scan` | POST | scan again |
 | `/cameras/select` | POST | form `ssid`, `pass`, `proto` (`auto`/`i4season`/`jhcmd`); empty SSID = clear selection |
 | `/cameras/autoscan/<0\|1>` | POST | automatic scan off/on (stored in NVS). Off: no scans of its own, only reconnects to the remembered camera |
@@ -593,7 +597,7 @@ Shown on the start page, in `/cameras.json` (`battery`, `charging`, `led`) and i
 ## 13. Known limitations
 
 - No PSRAM: GPIO16/17 are used for Ethernet. Only ~120 KB RAM + ~58 KB IRAM.
-- Orientation correction only in the browser (CSS rotation). The CYD always shows the image turned by the fixed −90°, VLC/Home Assistant get the raw image (−90°).
+- Orientation correction only in the browser (CSS rotation). The CYD shows the image turned by the fixed rotation of the camera model (otoscope −90°), VLC/Home Assistant get the raw image.
 - Dropouts at Wi-Fi RSSI < −70 dBm. Fix: place the ZB-GW03 closer to the otoscope.
 - The camera serves only the client that connected last: the vendor app and the bridge cannot
   be used at the same time (observed with the Soulear and the iOS app).

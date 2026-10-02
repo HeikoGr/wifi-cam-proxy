@@ -128,6 +128,7 @@ class State:
             "led_level": self.led_level,
             "width": 640 if c else 0,
             "height": 480 if c else 0,
+            "rotation": -90 if c else 0,  # Soulear: camera turned in the probe
             "vendor": "YPC" if c else "",
             "product": "BK7231U-XRH-FBPRO" if c else "",
             "firmware": "HKV41B" if c else "",

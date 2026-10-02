@@ -44,25 +44,42 @@ void CamTelemetry::reset() {
 }
 
 // --- Protocols and SSID patterns ---------------------------------------------------
-// Case-insensitive prefixes. Order matters (first match wins).
+// Case-insensitive prefixes = camera models. Order matters (first match wins).
 // Sources: king-cake/otoscope-windows, rico001/open-web-soulear (app prefixes),
 // Fyfar/ms5-wifi-microscope (MS5), czietz/wifimicroscope (MaxSee).
+// rotation: how the image is turned for display, in degrees as CSS rotate() (positive =
+// clockwise). BY_SENSOR: -90 if the camera reports an orientation sensor (in the
+// otoscopes seen so far the camera sits turned by 90 degrees in the probe), else 0.
+static const int16_t BY_SENSOR = INT16_MIN;
 struct SsidPattern {
   const char *prefix;
   CamProto proto;
+  int16_t rotation;
 };
 static const SsidPattern SSID_PATTERNS[] = {
-    {"Soulear", CamProto::I4season},       // Hopefox Find T and others (verified on the device)
-    {"SUEAR", CamProto::I4season},         // Suear ear cleaners
-    {"i4season", CamProto::I4season},
-    {"inskam", CamProto::I4season},
-    {"Yanxuan", CamProto::I4season},
-    {"wifi_camera_", CamProto::I4season},  // MS5 microscope (wifi_camera_MS5_XXXX)
-    {"MAX-VIEW", CamProto::Jhcmd},         // MAXVIEW-xxxx sits at 192.168.29.1 and does not
-    {"MAXVIEW", CamProto::Jhcmd},          // answer i4season (observed), so MaxSee family
-    {"Maxsee", CamProto::Jhcmd},           // MaxSee/JoyHonest, camera at 192.168.29.1
-    {"JH-", CamProto::Jhcmd},
+    {"Soulear", CamProto::I4season, -90},         // Hopefox Find T and others (verified on the device)
+    {"SUEAR", CamProto::I4season, BY_SENSOR},     // Suear ear cleaners
+    {"i4season", CamProto::I4season, BY_SENSOR},
+    {"inskam", CamProto::I4season, BY_SENSOR},
+    {"Yanxuan", CamProto::I4season, BY_SENSOR},
+    {"wifi_camera_", CamProto::I4season, 0},      // MS5 microscope (wifi_camera_MS5_XXXX)
+    {"MAX-VIEW", CamProto::Jhcmd, 0},             // MAXVIEW-xxxx sits at 192.168.29.1 and does not
+    {"MAXVIEW", CamProto::Jhcmd, 0},              // answer i4season (observed), so MaxSee family
+    {"Maxsee", CamProto::Jhcmd, 0},               // MaxSee/JoyHonest, camera at 192.168.29.1
+    {"JH-", CamProto::Jhcmd, 0},
 };
+static std::atomic<int16_t> rotationRule{BY_SENSOR};  // of the connected camera
+
+static const SsidPattern *patternForSsid(const char *ssid) {
+  for (const auto &p : SSID_PATTERNS)
+    if (strncasecmp(ssid, p.prefix, strlen(p.prefix)) == 0) return &p;
+  return nullptr;
+}
+
+int cameraImageRotation() {
+  int r = rotationRule;
+  return r != BY_SENSOR ? r : telemetry.hasOrientation ? -90 : 0;
+}
 
 // --- Session diagnostics -------------------------------------------------------------
 static char diagBuf[1024];  // ~8 lines of hex
@@ -181,9 +198,8 @@ CamProto protoFromKey(const char *key) {
   return CamProto::None;
 }
 CamProto protoForSsid(const char *ssid) {
-  for (const auto &p : SSID_PATTERNS)
-    if (strncasecmp(ssid, p.prefix, strlen(p.prefix)) == 0) return p.proto;
-  return CamProto::None;
+  const SsidPattern *m = patternForSsid(ssid);
+  return m ? m->proto : CamProto::None;
 }
 
 // --- State ----------------------------------------------------------------------
@@ -390,6 +406,8 @@ void cameraOnWifiGotIp() {
       else p = protoForSsid(curSsid);
       if (p == CamProto::None) p = CamProto::I4season;
     }
+    const SsidPattern *m = patternForSsid(curSsid);
+    rotationRule = m ? m->rotation : BY_SENSOR;
     // Update the remembered camera (loop stores it in NVS)
     if (strcmp(prefSsid, curSsid) || strcmp(prefPass, curPass) || prefProto != curProto) {
       strlcpy(prefSsid, curSsid, sizeof(prefSsid));
@@ -619,12 +637,12 @@ size_t cameraJson(char *out, size_t len) {
                ",\"pref_proto\":\"%s\",\"autoscan\":%s,\"recognized\":%d,\"scan_age_s\":%ld,"
                "\"orientation\":%s,\"battery\":%d,\"charging\":%d,\"led\":%d,\"led_supported\":%s,"
                "\"led_dimmable\":%s,\"led_level\":%d,\"battery_raw\":%d,"
-               "\"width\":%u,\"height\":%u,\"vendor\":",
+               "\"width\":%u,\"height\":%u,\"rotation\":%d,\"vendor\":",
                protoKey(prefProto), autoScan ? "true" : "false", recognized, scanAt ? (long)((millis() - scanAt) / 1000) : -1L,
                telemetry.hasOrientation ? "true" : "false", (int)telemetry.battery,
                (int)telemetry.charging, (int)telemetry.led, telemetry.ledSupported ? "true" : "false",
                telemetry.ledDimmable ? "true" : "false", (int)ledLevel, (int)telemetry.batteryRaw,
-               (unsigned)telemetry.width, (unsigned)telemetry.height));
+               (unsigned)telemetry.width, (unsigned)telemetry.height, cameraImageRotation()));
   add(jsonStr(out + o, room(), vendor));
   add(snprintf(out + o, room(), ",\"product\":"));
   add(jsonStr(out + o, room(), product));
