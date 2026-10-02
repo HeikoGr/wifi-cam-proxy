@@ -132,6 +132,7 @@ Details on usage, diagnostics and the measurements behind the settings are in
 | [soulear-viewer.py](soulear-viewer.py), [probe-soulear.py](probe-soulear.py) | Python tools for the PC (standard library only) |
 | [docs/](docs/) | project documentation and handovers |
 | [tools/ui-preview/](tools/ui-preview/) | web UI preview without hardware (mock server) and screenshot script |
+| [tools/host-tests/](tools/host-tests/) | tests of the camera code (JHCMD packet handling, sniffer) on the host, with a real MAX-VIEW frame |
 
 **Memory:** the code of all protocols lives in flash and runs directly from there. Only the session
 of the currently connected camera occupies RAM. It is created on connect and freed again on
