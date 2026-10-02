@@ -178,6 +178,7 @@ static char selSsid[33], selPass[65];
 static CamProto selProto;
 static std::atomic<bool> scanPending{false};
 static std::atomic<bool> autoScan{true};      // see cameraSetAutoScan()
+static std::atomic<bool> paused{false};       // see cameraPause()
 
 // For the video task: active session, recreated via sessionGen on change
 static std::atomic<CamProto> activeProto{CamProto::None};
@@ -343,7 +344,7 @@ void cameraBegin() {
 }
 
 void cameraOnWifiGotIp() {
-  if (rescueMode) return;
+  if (rescueMode || paused) return;
   uint32_t gw = (uint32_t)WiFi.gatewayIP();
   CamProto p;
   {
@@ -403,9 +404,26 @@ static bool reconnectInstead() {
   return true;
 }
 
+void cameraPause(bool on) {
+  if (on == paused) return;
+  paused = on;
+  if (on) {
+    activeProto = CamProto::None;  // video task ends the session
+    activeIp = 0;
+    sessionGen++;
+    WiFi.setAutoReconnect(false);
+    WiFi.disconnect();
+    crumb("camera: paused");
+  } else {
+    crumb("camera: resumed");
+  }
+  setState(CamState::Off);  // after resuming, the loop reconnects to the current camera
+}
+bool cameraPaused() { return paused; }
+
 void cameraLoop() {
   if (savePref.exchange(false)) storePref();
-  if (updating) return;
+  if (updating || paused) return;
   if (rescueMode) {  // camera idle; only scans for the setup page (/wifi-setup)
     if (state == CamState::Scanning) {
       int n = WiFi.scanComplete();

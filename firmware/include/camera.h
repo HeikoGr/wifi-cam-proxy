@@ -100,6 +100,10 @@ void cameraRequestScan();
 // remembered camera; scanning only on request (cameraRequestScan).
 bool cameraAutoScan();
 void cameraSetAutoScan(bool on);
+// Pause: end the session, leave the camera Wi-Fi and do nothing until resumed (for the
+// sniffer, so the vendor app can connect). Resume reconnects to the current camera.
+void cameraPause(bool on);
+bool cameraPaused();
 // For devices without a web UI (CYD): query state and scan list directly
 struct ScanEntry {
   char ssid[33];

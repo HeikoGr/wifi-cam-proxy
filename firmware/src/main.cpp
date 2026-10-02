@@ -34,6 +34,7 @@
 #include "config.h"
 #include "crashlog.h"
 #include "rescue.h"
+#include "sniffer.h"
 
 static const char FW_VERSION[] = __DATE__ " " __TIME__;
 
@@ -698,6 +699,33 @@ static void clientTask(void *arg) {
       handleOrientation(fd);
     } else if (get && strcmp(path, "/status") == 0) {
       handleStatus(fd);
+    } else if (post && strncmp(path, "/sniff/start", 12) == 0 && (!path[12] || path[12] == '/')) {
+      // /sniff/start or /sniff/start/<channel>
+      if (!authorized(req.get())) {
+        sendText(fd, 401, "Unauthorized", "Wrong OTA password");
+      } else if (rescueMode) {
+        sendText(fd, 409, "Conflict", "Not in rescue mode");
+      } else if (sniffStart(path[12] ? atoi(path + 13) : 0, (uint32_t)WiFi.gatewayIP(),
+                            path[12] && strchr(path + 13, '/') ? strchr(path + 13, '/')[1] : 0)) {
+        sendText(fd, 200, "OK", "Sniffer running: now connect the vendor app to the camera. Read GET /sniff\n");
+      } else {
+        sendText(fd, 400, "Bad Request", "Channel unknown (not connected to a camera): use /sniff/start/<channel>\n");
+      }
+    } else if (post && strcmp(path, "/sniff/stop") == 0) {
+      if (!authorized(req.get())) {
+        sendText(fd, 401, "Unauthorized", "Wrong OTA password");
+      } else {
+        sniffStop();
+        sendText(fd, 200, "OK", "Sniffer stopped, reconnecting to the camera\n");
+      }
+    } else if (get && strcmp(path, "/sniff") == 0) {
+      static const char hdr[] =
+          "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\n"
+          "Cache-Control: no-cache\r\nConnection: close\r\n\r\n";
+      BlockSender out(fd);
+      out.put(hdr, sizeof(hdr) - 1);
+      sniffText([](void *o, const char *line) { ((BlockSender *)o)->put(line, strlen(line)); }, &out);
+      out.flush();
     } else if (get && strcmp(path, "/camdiag/raw") == 0) {
       // first call requests the capture of the next frame, the next one fetches it
       Frame raw;
