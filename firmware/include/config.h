@@ -91,8 +91,14 @@
 #define LED_RED_GPIO       15              // on = rescue mode (active LOW)
 #define ZIGBEE_NRST_GPIO   13             // nRST of the EFR32, LOW = held in reset
 #define ETH_10MBIT_DEFAULT true
+// 10 Mbit Ethernet: the 720p MAX-VIEW sends ~22 fps with 33-84 KB per frame (6-15
+// Mbit/s), more than the link carries -> the stream stuttered. At most 10 fps per viewer.
+#define STREAM_MAX_FPS     10
 
 #endif  // board selection
+#ifndef STREAM_MAX_FPS
+#define STREAM_MAX_FPS     0               // frames per second per stream viewer, 0 = unlimited
+#endif
 
 // LED polarity: ZB-GW03 = inverted (LOW = on), WT32-ETH01 = normal (HIGH = on)
 #if defined(BOARD_WT32_ETH01)

@@ -230,6 +230,7 @@ static void handleStream(int fd) {
   if (sendAll(fd, hdr, sizeof(hdr) - 1)) {
     uint32_t seq = 0;
     uint32_t lastCheck = millis();
+    uint32_t lastSent = 0;  // for STREAM_MAX_FPS
     BlockSender out(fd);  // one buffer per viewer, for all frames
     Frame frame;
     while (!updating) {
@@ -244,6 +245,14 @@ static void handleStream(int fd) {
         vTaskDelay(pdMS_TO_TICKS(10));
         continue;
       }
+      // At most STREAM_MAX_FPS: wait and then send the newest frame (frames in between
+      // are skipped, the stream does not fall behind)
+      if (STREAM_MAX_FPS > 0 && millis() - lastSent < 1000 / STREAM_MAX_FPS) {
+        frame.reset();
+        vTaskDelay(pdMS_TO_TICKS(5));
+        continue;
+      }
+      lastSent = millis();  // start to start, so the sending time is not added on top
       seq = s;
       if (clientClosed(fd)) {
         frame.reset();
