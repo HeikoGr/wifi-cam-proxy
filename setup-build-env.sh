@@ -4,6 +4,8 @@
 #   ./setup-build-env.sh            install PlatformIO, create secrets.h,
 #                                   pre-download platform + toolchain
 #   ./setup-build-env.sh --build    additionally build all boards once
+#   ./setup-build-env.sh --ui       additionally install Pillow, Playwright and Chromium
+#                                   for the web UI preview/screenshots (tools/ui-preview)
 #
 # Tested on Debian/Ubuntu (including GitHub Codespaces) and macOS.
 # The script is idempotent: running it several times does no harm.
@@ -14,7 +16,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FW="$ROOT/firmware"
 VENV="$ROOT/.venv"
 BUILD=0
-[[ "${1:-}" == "--build" ]] && BUILD=1
+UI=0
+for arg in "$@"; do
+  case "$arg" in
+    --build) BUILD=1 ;;
+    --ui) UI=1 ;;
+    *) echo "unknown option: $arg"; exit 1 ;;
+  esac
+done
 
 info() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m  %s\n' "$*"; }
@@ -65,7 +74,16 @@ fi
 info "Writing firmware/compile_commands.json for IntelliSense"
 PIO="$PIO" "$ROOT/tools/gen-compiledb.sh" || warn "compile_commands.json failed - IntelliSense will report false errors"
 
-# --- 8. Optional: build all boards ----------------------------------------------
+# --- 8. Optional: web UI preview and screenshots (tools/ui-preview) ----------------
+if [[ $UI -eq 1 ]]; then
+  info "Installing Pillow and Playwright for the web UI preview"
+  "$VENV/bin/pip" install --quiet pillow playwright
+  info "Installing Chromium for Playwright"
+  "$VENV/bin/playwright" install chromium \
+    || warn "Chromium installation failed - system libraries missing? (Linux: sudo .venv/bin/playwright install-deps chromium)"
+fi
+
+# --- 9. Optional: build all boards ----------------------------------------------
 if [[ $BUILD -eq 1 ]]; then
   for env in zb-gw03 wt32-eth01 cyd; do
     info "Building $env"

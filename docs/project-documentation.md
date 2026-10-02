@@ -434,7 +434,7 @@ With `OTA_PASSWORD` set (header `X-OTA-Password`, a wrong one gives 401): `POST 
 | **Wi-Fi setup (rescue mode)** | | |
 | ![Wi-Fi setup](screenshots/wifi-setup-rescue.png) | | |
 
-Screenshots from [tools/ui-preview](../tools/ui-preview/) (simulated data, generated test image).
+Screenshots from [tools/ui-preview](../tools/ui-preview/) (simulated data, real camera picture).
 The pages share `/style.css` and `/app.js`; no external resources are loaded.
 
 **Home Assistant** (MJPEG camera):

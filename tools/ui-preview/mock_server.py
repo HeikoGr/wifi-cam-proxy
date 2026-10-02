@@ -5,9 +5,12 @@ Mock server for the WiFi-Cam-Proxy web UI - develop and screenshot the UI withou
 The pages are not copied: they are compiled straight from firmware/include/web_ui.h with
 the host C++ compiler, so the browser sees exactly the bytes the firmware would send.
 The API (/status, /cameras.json, /stream, /orientation, ...) is simulated with plausible
-values; the camera image is a generated test picture, clearly marked as simulated.
+values. The camera image is a still picture: by default a generated test picture marked
+as simulated, with --image a real one (a JPEG file or a URL, e.g. the snapshot of a
+running device).
 
     python3 tools/ui-preview/mock_server.py [--port 8080] [--scenario normal|choose|rescue]
+                                            [--image http://otoskop.local/snapshot]
 
 Then open http://127.0.0.1:8080/. Needs g++ (or c++) and Pillow (pip install pillow).
 """
@@ -55,6 +58,29 @@ def build_pages() -> dict:
         subprocess.run(["c++", "-std=c++17", "-I", str(INCLUDE), str(src), "-o", str(exe)], check=True)
         subprocess.run([str(exe)], check=True)
         return {url: (tmp / name).read_bytes() for name, url in PAGES.items()}
+
+
+def load_image(source: str) -> bytes:
+    """A real camera picture from a JPEG file or a URL (e.g. http://otoskop.local/snapshot).
+
+    The simulated camera is a Soulear: square picture, which the web UI turns by -90°.
+    Crop the middle square and deliver it turned the other way so it ends up upright."""
+    from PIL import Image
+
+    if "://" in source:
+        from urllib.request import urlopen
+        with urlopen(source, timeout=5) as r:
+            data = r.read()
+    else:
+        data = Path(source).read_bytes()
+    img = Image.open(io.BytesIO(data)).convert("RGB")
+    w, h = img.size
+    s = min(w, h)
+    img = img.crop(((w - s) // 2, (h - s) // 2, (w + s) // 2, (h + s) // 2))
+    img = img.transpose(Image.Transpose.ROTATE_270)
+    out = io.BytesIO()
+    img.save(out, "JPEG", quality=90)
+    return out.getvalue()
 
 
 def test_image(size=480) -> bytes:
@@ -311,10 +337,11 @@ def make_handler(pages: dict, frame: bytes, state: State):
     return Handler
 
 
-def serve(port=8080, scenario="normal"):
+def serve(port=8080, scenario="normal", image: bytes = None):
     """Starts the server in a background thread, returns it (for screenshots.py)."""
     pages = build_pages()
-    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(pages, test_image(), State(scenario)))
+    frame = image or test_image()
+    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(pages, frame, State(scenario)))
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
@@ -324,8 +351,9 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--port", type=int, default=8080)
     ap.add_argument("--scenario", choices=["normal", "choose", "rescue"], default="normal")
+    ap.add_argument("--image", help="camera picture: JPEG file or URL (default: generated test picture)")
     args = ap.parse_args()
-    serve(args.port, args.scenario)
+    serve(args.port, args.scenario, load_image(args.image) if args.image else None)
     print(f"Mock WiFi-Cam on http://127.0.0.1:{args.port}/  (scenario: {args.scenario}, Ctrl+C to stop)")
     try:
         while True:

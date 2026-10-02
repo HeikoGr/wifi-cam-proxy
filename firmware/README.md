@@ -24,7 +24,7 @@ As of 2026-09-30: stable at 17 fps, also with a viewer. Dropouts only occur when
 
 ![Live view](../docs/screenshots/live.png)
 
-The screenshots in this file come from the [UI preview](../tools/ui-preview/) (simulated data, generated test image).
+The screenshots in this file come from the [UI preview](../tools/ui-preview/) (simulated data, real camera picture).
 
 ## Cameras
 
