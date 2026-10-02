@@ -41,6 +41,16 @@ int main() {
 
   Frame small = build(30 * 1024);  // below FRAME_RESERVE_FROM: no rule, plain malloc
   check("30 KB frame (below 48 KB) is built", (bool)small);
+
+  // Below 48 KB the heap floor still applies: a frame held elsewhere (the CYD decoding
+  // it) and a small budget must not drain the heap to zero
+  small.reset();
+  getFrame(viewer);
+  heapBudget = mallinfo2().uordblks - heapBaseline + 40 * 1024;  // 40 KB left
+  Frame d = build(30 * 1024);
+  check("30 KB frame refused when it would cut into the floor", !d);
+  check("free heap stays above FRAME_HEAP_FLOOR", heapFree() >= FRAME_HEAP_FLOOR);
+  viewer.reset();
   printf(fails ? "FAIL\n" : "OK\n");
   return fails;
 }

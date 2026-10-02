@@ -61,6 +61,18 @@
 // 40 MHz for the ILI9341 variant. The ESP32 only divides 80 MHz (80, 40, 26.7, ...);
 // if the image is garbled or has wrong colours, go back to 40000000.
 #define CYD_SPI_WRITE_HZ   80000000
+// The display holds one frame while it decodes it (~140 ms), the next one is built
+// meanwhile. With the 720p MAX-VIEW (33-98 KB per frame) both together left the Wi-Fi
+// driver too little: its receive buffers (up to 32 x 1.6 KB) failed, heap down to 224
+// bytes, hundreds of lost packets per second, streaks from damaged frames. So every
+// chunk must leave room for a full burst of receive buffers; a large frame that does not
+// fit beside the displayed one is dropped and the next one is taken after the decode.
+#define FRAME_HEAP_RESERVE (48 * 1024)
+#define FRAME_HEAP_FLOOR   (48 * 1024)
+// A frame with lost packets shows as horizontal streaks from the gap down to the bottom,
+// and on the CYD it stays on screen until the next decode (~200 ms): better the previous
+// clean image a little longer
+#define SHOW_DAMAGED_FRAMES 0
 
 #elif defined(BOARD_WT32_ETH01)
 // --- WT32-ETH01 (ESP32 + LAN8720 with its own 50 MHz oscillator on GPIO0) ------------
@@ -120,11 +132,22 @@
 // heap remains free afterwards (otherwise the frame is dropped, "drop_nomem").
 #define MAX_FRAME_BYTES    (96 * 1024)
 #define FRAME_RESERVE_FROM (48 * 1024)       // up to here as before (proven on the otoscope)
+#ifndef FRAME_HEAP_RESERVE
 #define FRAME_HEAP_RESERVE (40 * 1024)       // for the Wi-Fi driver, lwIP and HTTP tasks
+#endif
+// Below this no chunk is ever taken from the heap, whatever the frame size: without it
+// the first 48 KB of a frame drained the heap to ~1.4 KB on the CYD with the MAX-VIEW
+// (the display holds one 720p frame while the next is built), the Wi-Fi driver lost
+// hundreds of packets per second and frames came out damaged.
+#ifndef FRAME_HEAP_FLOOR
+#define FRAME_HEAP_FLOOR   (16 * 1024)
+#endif
 #define STALL_TIMEOUT_MS   200               // no data this long -> handshake again (normally a frame every ~58 ms)
 #define HANDSHAKE_RETRY_MS 800               // earliest next START after a START
 // Show frames with lost packets anyway (1) or drop them (0).
+#ifndef SHOW_DAMAGED_FRAMES
 #define SHOW_DAMAGED_FRAMES 1
+#endif
 // Wi-Fi mode towards the camera if nothing is stored in NVS ("bgn", "bg", "b").
 #define WIFI_MODE_DEFAULT  "bg"
 // Wi-Fi transmit power in 0.25 dBm if nothing is stored in NVS (8..84; 44 = 11 dBm).

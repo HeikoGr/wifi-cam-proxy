@@ -236,6 +236,14 @@ Frames are **not stored as one contiguous block** but as a list of UDP payloads
   nobody else holds it (no stream viewer sending it, no snapshot, no CYD decoding it) and tries
   once more (`/status` `released` counts it). Viewers then get the next frame. Checked on the
   host (`tools/host-tests`, `frame_test.cpp`).
+- **Heap floor:** below 48 KB no chunk is taken while less than `FRAME_HEAP_FLOOR` (16 KB)
+  would stay free. On the CYD with the MAX-VIEW (display decoding one 720p frame while the
+  next is built) the heap otherwise dropped to ~1.4 KB, Wi-Fi lost hundreds of packets per
+  second and damaged frames showed as horizontal streaks. 16 KB was not enough there (still
+  224 bytes): the Wi-Fi receive buffers alone take up to 32 x 1.6 KB in a burst. On the CYD
+  floor and reserve are both 48 KB; a large frame that does not fit beside the one being
+  decoded is dropped (`no mem`), the next one is taken after the decode. `[stats]` shows the
+  heap minimum per 5 s interval.
 
 **IRAM trap:** `getFreeHeap()` includes ~44 KB of IRAM that cannot be used for `malloc()` and
 task stacks. The firmware therefore uses `heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)`.
@@ -370,9 +378,10 @@ Important constants:
 | `MAX_STREAM_CLIENTS` | 3 | max. simultaneous MJPEG viewers |
 | `STALL_TIMEOUT_MS` | 200 | silence → repeat handshake |
 | `HANDSHAKE_RETRY_MS` | 800 | minimum interval between STARTs |
-| `SHOW_DAMAGED_FRAMES` | 1 | show (1) or drop (0) frames with packet loss |
+| `SHOW_DAMAGED_FRAMES` | 1 (CYD: 0) | show (1) or drop (0) frames with packet loss |
 | `WIFI_MODE_DEFAULT` | `"bg"` | Wi-Fi mode without 11n (every packet on its own) |
-| `MAX_FRAME_BYTES` / `FRAME_RESERVE_FROM` / `FRAME_HEAP_RESERVE` | 96 / 48 / 40 KB | largest frame; beyond 48 KB only while 40 KB heap remain free |
+| `MAX_FRAME_BYTES` / `FRAME_RESERVE_FROM` / `FRAME_HEAP_RESERVE` | 96 / 48 / 40 KB (CYD: 48 KB) | largest frame; beyond 48 KB only while 40 KB heap remain free |
+| `FRAME_HEAP_FLOOR` | 16 KB (CYD: 48 KB) | no frame chunk from the heap below this, whatever the frame size |
 | `STREAM_MAX_FPS` | 5 on the ZB-GW03 (10 still stuttered), else 0 (unlimited) | frames per second per stream viewer; the newest frame is sent, the ones in between are skipped. The 720p MAX-VIEW (~22 fps, 33–84 KB) needs 6–15 Mbit/s, more than the 10 Mbit Ethernet of the ZB-GW03 carries |
 
 ### 6.2 Runtime (NVS, namespace `otoskop`)

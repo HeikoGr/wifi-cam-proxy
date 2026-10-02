@@ -35,10 +35,10 @@ uint8_t *allocChunk(size_t len, size_t frameSoFar) {
       p = nullptr;
     }
     // Large frames (720p microscopes) must not drain the heap, otherwise the Wi-Fi
-    // driver and HTTP tasks run short. Up to FRAME_RESERVE_FROM this does not apply:
-    // that keeps the behaviour proven on the otoscope unchanged.
-    if (!p && !(frameSoFar >= FRAME_RESERVE_FROM && heapFree() < FRAME_HEAP_RESERVE + bytes))
-      p = malloc(bytes);  // IRAM full -> regular heap
+    // driver and HTTP tasks run short. Up to FRAME_RESERVE_FROM only the smaller
+    // FRAME_HEAP_FLOOR applies, which the otoscope's frames never reach.
+    size_t reserve = frameSoFar >= FRAME_RESERVE_FROM ? FRAME_HEAP_RESERVE : FRAME_HEAP_FLOOR;
+    if (!p && heapFree() >= reserve + bytes) p = malloc(bytes);  // IRAM full -> regular heap
     if (p) return (uint8_t *)p;
     // Not enough memory: the last published frame and the one being built do not fit
     // together (720p, 50-85 KB each). Free the stored one if nobody is using it, then
