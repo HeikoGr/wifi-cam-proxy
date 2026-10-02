@@ -1,7 +1,6 @@
 #include "rescue.h"
 
 #include <DNSServer.h>
-#include <Preferences.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
 
@@ -11,6 +10,7 @@
 #include "camera.h"
 #include "config.h"
 #include "crashlog.h"
+#include "settings.h"
 
 static std::mutex homeMutex;  // home Wi-Fi: HTTP task writes, loop reads
 static char homeSsid[33] = "", homePass[65] = "";
@@ -21,12 +21,10 @@ static uint32_t staSince = 0;     // start of the attempt or last connected
 static bool staTrying = false;    // home Wi-Fi is being tried (auto-reconnect on)
 
 void rescueBegin() {
-  Preferences p;
-  if (p.begin("otoskop", true)) {
+  nvsRead([](Preferences &p) {
     strlcpy(homeSsid, p.getString("home_ssid", "").c_str(), sizeof(homeSsid));
     strlcpy(homePass, p.getString("home_pass", "").c_str(), sizeof(homePass));
-    p.end();
-  }
+  });
   if (!*homeSsid) {  // default from secrets.h
     strlcpy(homeSsid, HOME_WIFI_SSID, sizeof(homeSsid));
     strlcpy(homePass, HOME_WIFI_PASSWORD, sizeof(homePass));
@@ -121,13 +119,10 @@ bool rescueSetHome(const char *ssid, const char *pass) {
     strlcpy(homeSsid, ssid, sizeof(homeSsid));
     strlcpy(homePass, pass, sizeof(homePass));
   }
-  Preferences p;
-  bool ok = p.begin("otoskop", false);
-  if (ok) {
+  bool ok = nvsWrite([&](Preferences &p) {
     p.putString("home_ssid", ssid);
     p.putString("home_pass", pass);
-    p.end();
-  }
+  });
   crumb("home Wi-Fi stored: %s", ssid);
   if (rescueMode && *ssid) connectPending = true;
   return ok;

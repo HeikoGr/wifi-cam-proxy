@@ -22,6 +22,13 @@ enum class CamProto : uint8_t {
   Jhcmd,     // MaxSee/JoyHonest/MAX-VIEW microscopes (UDP 20000/10900, "JHCMD")
   Auto = 0xFF,
 };
+// Camera addresses (IPv4 in network byte order, as in sockaddr_in): MaxSee/JHCMD cameras
+// are fixed at 192.168.29.1, i4season cameras usually are the gateway 192.168.1.1
+constexpr uint32_t ipv4(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
+  return a | b << 8 | c << 16 | (uint32_t)d << 24;
+}
+constexpr uint32_t JHCMD_CAM_IP = ipv4(192, 168, 29, 1);
+constexpr uint32_t I4SEASON_CAM_IP = ipv4(192, 168, 1, 1);
 const char *protoKey(CamProto p);   // "i4season", "jhcmd", "auto", ""
 const char *protoName(CamProto p);  // for the web UI
 CamProto protoFromKey(const char *key);

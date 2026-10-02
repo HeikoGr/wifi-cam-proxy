@@ -22,7 +22,6 @@
  */
 
 #include <Arduino.h>
-#include <Preferences.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
 
@@ -35,6 +34,7 @@
 #include "config.h"
 #include "crashlog.h"
 #include "jpeg_reader.h"
+#include "settings.h"
 
 // Expected by camera.cpp. The CYD has no rescue mode and no OTA.
 volatile bool rescueMode = false;
@@ -56,21 +56,17 @@ static uint8_t brightness = 160;
 static bool zoomFull = true;  // 1:1 crop instead of the reduced full image
 
 static void loadSettings() {
-  Preferences p;
-  if (p.begin("otoskop", true)) {
+  nvsRead([](Preferences &p) {
     brightness = p.getUChar("cyd_bright", 160);
     zoomFull = p.getBool("cyd_zoom", true);
-    p.end();
-  }
+  });
 }
 
 static void saveSettings() {
-  Preferences p;
-  if (p.begin("otoskop", false)) {
+  nvsWrite([](Preferences &p) {
     p.putUChar("cyd_bright", brightness);
     p.putBool("cyd_zoom", zoomFull);
-    p.end();
-  }
+  });
 }
 
 // --- Read the JPEG from the packet list (include/jpeg_reader.h) ----------------------

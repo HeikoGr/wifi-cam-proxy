@@ -15,12 +15,12 @@
 
 #include "camera.h"
 
-#include <Preferences.h>
 #include <WiFi.h>
 
 #include <mutex>
 
 #include "crashlog.h"
+#include "settings.h"
 
 VideoStats stats;
 CamTelemetry telemetry;
@@ -271,15 +271,13 @@ static void videoTask(void *) {
 
 // --- NVS ------------------------------------------------------------------------
 static void loadPref() {
-  Preferences p;
-  if (p.begin("otoskop", true)) {
+  nvsRead([](Preferences &p) {
     strlcpy(prefSsid, p.getString("cam_ssid", "").c_str(), sizeof(prefSsid));
     strlcpy(prefPass, p.getString("cam_pass", "").c_str(), sizeof(prefPass));
     prefProto = protoFromKey(p.getString("cam_proto", "auto").c_str());
     if (prefProto == CamProto::None) prefProto = CamProto::Auto;
     autoScan = p.getBool("cam_autoscan", true);
-    p.end();
-  }
+  });
 }
 
 static void storePref() {
@@ -291,13 +289,11 @@ static void storePref() {
     strlcpy(pass, prefPass, sizeof(pass));
     proto = prefProto;
   }
-  Preferences p;
-  if (p.begin("otoskop", false)) {
+  nvsWrite([&](Preferences &p) {
     p.putString("cam_ssid", ssid);
     p.putString("cam_pass", pass);
     p.putString("cam_proto", protoKey(proto));
-    p.end();
-  }
+  });
 }
 
 // --- Connect / scan (from loop only) ----------------------------------------------
@@ -391,7 +387,7 @@ void cameraOnWifiGotIp() {
     if (p == CamProto::Auto) {
       // The address beats the name: MaxSee cameras are fixed at 192.168.29.1, the SSID
       // patterns partly rest on assumptions. Otherwise by name, else i4season.
-      if (gw == (uint32_t)IPAddress(192, 168, 29, 1)) p = CamProto::Jhcmd;
+      if (gw == JHCMD_CAM_IP) p = CamProto::Jhcmd;
       else p = protoForSsid(curSsid);
       if (p == CamProto::None) p = CamProto::I4season;
     }
@@ -403,7 +399,7 @@ void cameraOnWifiGotIp() {
       savePref = true;
     }
   }
-  if (!gw) gw = p == CamProto::Jhcmd ? (uint32_t)IPAddress(192, 168, 29, 1) : (uint32_t)IPAddress(192, 168, 1, 1);
+  if (!gw) gw = p == CamProto::Jhcmd ? JHCMD_CAM_IP : I4SEASON_CAM_IP;
   // New session only if camera or address changed: after short radio dropouts the
   // existing session simply continues
   if (p != activeProto || gw != activeIp) {
@@ -418,11 +414,7 @@ void cameraOnWifiGotIp() {
 bool cameraAutoScan() { return autoScan; }
 void cameraSetAutoScan(bool on) {
   autoScan = on;
-  Preferences p;
-  if (p.begin("otoskop", false)) {
-    p.putBool("cam_autoscan", on);
-    p.end();
-  }
+  nvsWrite([&](Preferences &p) { p.putBool("cam_autoscan", on); });
   crumb("camera: automatic scan %s", on ? "on" : "off");
 }
 

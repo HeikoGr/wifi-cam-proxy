@@ -171,7 +171,7 @@ bool sniffStart(int channel, uint32_t camIp, char second) {
   videoPort = 0;
   videoSport = 0;
   portEXIT_CRITICAL(&mux);
-  camAddr = camIp ? camIp : (uint32_t)IPAddress(192, 168, 29, 1);
+  camAddr = camIp ? camIp : JHCMD_CAM_IP;
   sniffChannel = channel;
   startMs = millis();
   // Receive 802.11n as well: the bridge itself works in b/g, but the camera talks to the
