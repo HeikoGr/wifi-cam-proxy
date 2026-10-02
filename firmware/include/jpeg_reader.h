@@ -77,8 +77,11 @@ class FrameReader {
     if (!sof || !scan || !dri || !W || !H) return 0;
     int mw = 8 * hmax, mh = 8 * vmax;
     int perRow = (W + mw - 1) / mw;
-    // Last restart interval that starts at the beginning of an MCU row at or above y
-    long target = (long)(y / mh) * perRow;
+    // Last restart interval that starts at the beginning of an MCU row at least one MCU
+    // row above y: JPEGDEC smooths the chroma of the first row with the row above it, so
+    // starting right at the crop gave a few wrong colours in its top rows (host test
+    // jpeg_crop_test, 4:2:0 with restart every MCU row)
+    long target = (long)(y / mh - 1) * perRow;
     long i = target / dri;
     while (i > 0 && (i * dri) % perRow) i--;
     if (i <= 0) return 0;
