@@ -308,12 +308,46 @@ class JhcmdSession : public CamSession {
     }
     if (jpeg && (complete || SHOW_DAMAGED_FRAMES)) {
       if (!complete) stats.framesDamaged++;
+      collapseFill(building_);
       publishFrame(building_);
     } else {
       stats.framesDropped++;
       stats.dropIncomplete++;
     }
     building_.reset();
+  }
+
+  // The MAX-VIEW pads every restart interval with up to 32 fill bytes FF before the
+  // RSTn marker (allowed by the JPEG standard). JPEGDEC (CYD) stops decoding at the first
+  // run of two or more: the rest of the image kept the previous frame, horizontal
+  // streaks. So every run in the entropy-coded data is cut down to one FF, in place
+  // (chunks only get shorter). Browsers decode the result the same way.
+  static void collapseFill(Frame &f) {
+    static uint8_t buf[2048];
+    if (!f.chunks() || f.chunkLen(0) > sizeof(buf)) return;
+    // Header: markers up to SOS (FF DA) must be in chunk 0, otherwise leave the frame as it is
+    size_t n = f.chunkLen(0), pos = 2;
+    copyFromChunk(buf, f.chunk(0), 0, n);
+    while (pos + 4 <= n && buf[pos] == 0xFF && buf[pos + 1] != 0xDA) pos += 2 + (buf[pos + 2] << 8 | buf[pos + 3]);
+    if (pos + 4 > n || buf[pos] != 0xFF || buf[pos + 1] != 0xDA) return;
+    size_t scan = pos + 2 + (buf[pos + 2] << 8 | buf[pos + 3]);  // first byte of the scan data
+    if (scan > n) return;
+    bool prevFF = false;  // last byte kept was FF
+    for (int c = 0; c < f.chunks(); c++) {
+      size_t len = f.chunkLen(c), from = c ? 0 : scan;
+      if (len > sizeof(buf)) return;
+      if (c) copyFromChunk(buf, f.chunk(c), 0, len);
+      size_t out = from;
+      for (size_t i = from; i < len; i++) {
+        if (buf[i] == 0xFF && prevFF) continue;  // fill byte
+        prevFF = buf[i] == 0xFF;
+        buf[out++] = buf[i];
+      }
+      if (out != len) {
+        copyToChunk((uint8_t *)f.chunk(c), buf, out);
+        f.shrinkChunk(c, out);
+      }
+    }
   }
 
   // Raw capture for /camdiag/raw: all packets of one frame, from packet 0 until the

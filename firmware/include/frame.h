@@ -87,6 +87,11 @@ class Frame {
     p_->len += len;
     return true;
   }
+  // Receiver only, before publishing: chunk i now holds only its first len bytes
+  void shrinkChunk(int i, size_t len) {
+    p_->len -= p_->clen[i] - len;
+    p_->clen[i] = len;
+  }
   void trimLast(size_t bytes) {  // cut off padding zeros after FF D9
     p_->clen[p_->n - 1] -= bytes;
     p_->len -= bytes;

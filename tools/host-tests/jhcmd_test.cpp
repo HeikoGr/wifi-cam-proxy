@@ -13,6 +13,12 @@ int main(int argc, char **argv) {
   setvbuf(stdout, nullptr, _IONBF, 0);
   auto pk = load(argv[1]);
   std::string jpeg; { std::string all; for (auto &p : pk) all += p.substr(8); size_t a = all.find("\xff\xd8\xff"); size_t e = all.rfind("\xff\xd9"); jpeg = all.substr(a, e + 2 - a); }
+  // Expected: the fill bytes before the RSTn markers cut to one FF (JPEGDEC stops at two)
+  size_t scan = jpeg.find("\xff\xda"); scan += 2 + ((uint8_t)jpeg[scan + 2] << 8 | (uint8_t)jpeg[scan + 3]);
+  size_t rawSize = jpeg.size();
+  for (size_t i; (i = jpeg.find("\xff\xff", scan)) != std::string::npos;) jpeg.erase(i, 1);
+  printf("fill bytes             %zu removed, no FF FF left in the scan %d\n", rawSize - jpeg.size(),
+         jpeg.find("\xff\xff", scan) == std::string::npos);
   CamSession *s = createJhcmdSession(IPAddress(127, 0, 0, 1));
   int tx = socket(AF_INET, SOCK_DGRAM, 0); sockaddr_in to = {}; to.sin_family = AF_INET; to.sin_port = htons(10900); to.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   uint8_t buf[2048];

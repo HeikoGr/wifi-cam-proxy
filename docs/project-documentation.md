@@ -298,6 +298,13 @@ variant), Wi-Fi RSSI −26 to −49 dBm:
   every frame (`vTaskDelay(1)`), otherwise IDLE0 trips the task watchdog after 5 s.
 - **1:1 crop:** JPEGDEC moves the crop start down to a block edge (16 px) but keeps the width.
   The firmware therefore extends the crop, otherwise there was an 8 px black bar on one side.
+- **MAX-VIEW (1280×720) streaks, 2026-10-02:** the camera's JPEGs have a restart interval of
+  160 MCUs and pad each interval with up to 32 fill bytes `FF` before the RSTn marker
+  (allowed by the standard). JPEGDEC 1.8.4 stops with a decode error at the first run of two
+  or more (from row ~210 on in the captured frame); the rest of the display kept the previous
+  frame: horizontal streaks, also with no packet lost. The JHCMD session cuts every run in
+  the scan data down to one `FF` before publishing (browsers decode it the same way).
+  `[stats]` counts `decode errors`.
 - **Overlay** (battery, fps): sits in the side border or in a 10 px strip that the image leaves
   out at 1:1, and is only redrawn when its text changes (no flicker).
 - **No orientation correction:** removed. Arbitrary angles need a frame buffer, and in 90°
