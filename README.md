@@ -20,7 +20,9 @@ Wi-Fi and provides the image in the home network over Ethernet:
   you choose one in the web UI (`/cameras`).
 - **Orientation correction** in the browser for otoscopes with an orientation sensor: the image
   rotates along when the probe is turned. There is a calibration page for it.
-- **2× zoom** in the browser (button or double-click, drag to pan). The image arrives square;
+- **Zoom 1×, 2×, 4×** in the browser (button or double-click, drag to pan) and a **freeze** button
+  (still image). With cameras that have buttons (MAX-VIEW: zoom and photo; Soulear otoscope:
+  photo) they control zoom and freeze. The image arrives square;
   cropping it round is optional.
 - **Battery level and LED** of the camera, as far as the protocol knows them
 - Firmware update in the browser, crash backtrace in `/status`
@@ -112,7 +114,8 @@ What to watch out for:
 
 With `pio run -e cyd -t upload` the CYD becomes a standalone display device: it looks for the
 camera like the bridge and shows the centre 320×240 crop at full resolution (zoom 1:1).
-Alternatively it shows the whole image scaled down (480×480 → 240×240). If the processor is slower
+Alternatively it shows the whole image scaled down ("fit") or enlarged 2× or 4×, and the menu has
+a freeze button (still image); the camera's buttons control both. If the processor is slower
 than the camera, frames drop out by themselves; the newest frame is always shown. Tapping the
 image opens the menu with LED, zoom, camera choice and brightness. In the camera choice a button
 switches the protocol for the next connection (automatic → i4season → JHCMD). There is no orientation

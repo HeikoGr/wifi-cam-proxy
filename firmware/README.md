@@ -8,7 +8,7 @@ As of 2026-09-30: stable at 17 fps, also with a viewer. Dropouts only occur when
 
 | Address | Purpose |
 |---|---|
-| `http://wifi-cam.local/` | live image with orientation correction, 2× zoom, battery, LED, snapshot and VLC link |
+| `http://wifi-cam.local/` | live image with orientation correction, zoom 1×/2×/4×, freeze, battery, LED, snapshot and VLC link |
 | `/cameras` | cameras found, selection, rescan (JSON: `/cameras.json`) |
 | `/settings` | switches and settings, see below; stream addresses and Home Assistant snippet |
 | `/info` | status page: device, network, video counters, diagnostics with buttons |
@@ -40,7 +40,7 @@ Under `/cameras` you can also choose an unknown network. The camera address is t
 
 | Protocol | File | Video | Extras |
 |---|---|---|---|
-| i4season | [src/cam_i4season.cpp](src/cam_i4season.cpp) | GetDeviceInfo :10005, START :10006, 16/28-byte header | orientation sensor (if the header flag is set), battery from devinfo and status push :10007, LED (`0x0A`, payload `11 01 64` / `11 00 00`) |
+| i4season | [src/cam_i4season.cpp](src/cam_i4season.cpp) | GetDeviceInfo :10005, START :10006, 16/28-byte header | orientation sensor (if the header flag is set), battery and button (press counter) from devinfo and status push :10007, LED (`0x0A`, payload `11 01 64` / `11 00 00`) |
 | JHCMD (MaxSee, MAX-VIEW) | [src/cam_jhcmd.cpp](src/cam_jhcmd.cpp) | `JHCMD` to :20000, video to the fixed port 10900, 8-byte header; packets are sorted by number (they arrive out of order) | – |
 
 Only the session of the active camera occupies RAM, the protocol code lives in flash.

@@ -181,6 +181,8 @@ Observed on a MAX-VIEW microscope (`MAXVIEW-7762`, 2026-10-01) with a raw captur
     turn). Only the button is reported: levels set by the client are not. The same level
     follows as `FDWN 20 00 0e 00 01 00 <level>` to port 20001; the firmware listens on both,
     because UDP packets get lost on a weak Wi-Fi.
+  - `JHCMD 00 <k>` (7 bytes): the **zoom and photo buttons** (`01` photo, `04` zoom in, `05`
+    zoom out, `00 00` release). The firmware maps them to `CamKey` (section 11, "Camera buttons").
   - `JHCMD 20 00 61 …` (105 bytes), after every handshake: device information. Byte 7 is
     always `0x61`, whatever the LED does: not the level. Offset 24: name `YPC320`; offset 40:
     `0xcc` = 204, matches the end of the firmware shown by the app (`E.WH2405-20230724-204`;
@@ -382,7 +384,7 @@ Serial console (115200 baud) every 5 s:
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/` | GET | live image with orientation correction, 2× zoom, LED switch, VLC link |
+| `/` | GET | live image with orientation correction, zoom 1×/2×/4×, freeze, LED switch, VLC link |
 | `/settings` | GET | settings page: switches, frame rate, Wi-Fi mode and transmit power, Ethernet, stream addresses |
 | `/info` | GET | status page: device, network, video counters, diagnostics with buttons |
 | `/live` | GET | MJPEG stream for the live view in the browser (switch `live_on`; the page reads it with fetch and reconnects by itself) |
@@ -404,7 +406,7 @@ Serial console (115200 baud) every 5 s:
 | `/camdiag/raw` | GET | raw capture of one whole frame (all UDP packets with headers): first call requests it (202), the next one fetches it; freed after 30 s if nobody fetches it |
 | `/camdiag/send/<port>/<hex>` | POST | experiment: the camera session sends these bytes (max. 64) to the camera's port from its command socket; the camera's messages appear in `/camdiag` |
 | `/led/level/<0..100>` | POST | LED brightness in % for dimmable cameras (JHCMD), 0 = off |
-| `/led` | GET | `{"led":0\|1,"level":%}`: small state for the live page's one-second polling (no 3 KB buffer like `/cameras.json`) |
+| `/led` | GET | `{"led":0\|1,"level":%,"key":n,"seq":n}`: small state for the live page's one-second polling (no 3 KB buffer like `/cameras.json`); `key` = last camera button (1 photo, 2 zoom in, 3 zoom out), `seq` counts presses |
 | `/sniff/start[/<channel>[/above\|below\|none]]` | POST | sniffer: leave the camera Wi-Fi, record the UDP/TCP traffic of the vendor app with the camera (without UDP video) on the camera's channel, 11n, HT40 as in its beacon |
 | `/sniff`, `/sniff/stop` | GET / POST | read the recording as text / stop and reconnect. The recording (18 KB) is freed on stop, so read it first |
 | `/wifi-setup` | GET/POST | home Wi-Fi for rescue mode (form `ssid`, `pass`) |
@@ -484,7 +486,7 @@ Important constants:
 | `home_ssid`, `home_pass` | home Wi-Fi for rescue mode | `/wifi-setup` |
 | `cam_ssid`, `cam_pass`, `cam_proto` | last connected camera | `/cameras` |
 | `cam_autoscan` | automatic scan on/off (default on) | `/settings` |
-| `cyd_zoom`, `cyd_bright` | CYD settings | CYD touch menu |
+| `cyd_zl`, `cyd_bright` | CYD settings (zoom level 0..3 = fit, 1:1, 2×, 4×) | CYD touch menu |
 
 ### 6.3 Secrets ([firmware/include/secrets.h](../firmware/include/secrets.h))
 
@@ -622,6 +624,24 @@ Following [king-cake/otoscope-windows docs/i4season-protocol.md](https://github.
   cameras: see 3.4, byte 32 of the status answer.)
 
 Shown on the start page, in `/cameras.json` (`battery`, `charging`, `led`) and in `/status`.
+
+- **Button (Soulear otoscope):** the status push carries a press counter in packet byte 17 (payload
+  byte 5); it rises by 1 per press (seen: `06` → `07` → `08` → `09` → `0a`, the iOS app takes a
+  screenshot on it). The firmware reports every change as a photo key. It was found with a
+  logging build; a Wi-Fi capture did not help (see below).
+- **Capturing the app's traffic:** the ESP32 sniffer hears only one direction per setting (HT40+:
+  camera → phone, HT40−: phone → camera) and loses many frames; a monitor-mode card at −76 dBm
+  heard only 1 Mbit/s frames. From the phone's broadcasts at app start: `0x0C` with payload
+  `10 00 00 00 00 00` and `10 01 01 00 00 00` (cmd to UDP 10005, answered by the camera, meaning
+  unknown; not needed for the button).
+
+### Camera buttons (all protocols)
+
+`CamTelemetry::press()` (camera.h) turns the buttons of a camera into `CamKey` (`KEY_PHOTO`,
+`KEY_ZOOM_IN`, `KEY_ZOOM_OUT`), independent of the protocol. `/led` returns `key` and `seq`; the web
+UI follows within a second (zoom steps 1×, 2×, 4×; photo = freeze) and the CYD reacts on the
+live screen (zoom levels fit, 1:1, 2×, 4×; photo = freeze). While the image is frozen the web UI
+keeps its rotation fixed. JHCMD has zoom and photo buttons, the Soulear otoscope only photo.
 
 ---
 
