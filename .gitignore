@@ -1,5 +1,6 @@
 # PlatformIO build artefacts
 firmware/.pio/
+firmware/.dummy/
 
 # PlatformIO managed components (downloaded dependencies, like node_modules)
 firmware/managed_components/
