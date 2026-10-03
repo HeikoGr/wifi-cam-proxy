@@ -97,6 +97,9 @@ struct VideoStats {
 extern VideoStats stats;
 
 // Camera telemetry, -1 = unknown
+// Buttons on the camera, independent of the protocol: sessions translate their codes
+// to these, displays (web UI, CYD) decide what they do with them.
+enum CamKey : uint8_t { KEY_NONE = 0, KEY_PHOTO = 1, KEY_ZOOM_IN = 2, KEY_ZOOM_OUT = 3 };
 struct CamTelemetry {
   std::atomic<bool> hasOrientation{false};  // orientation sensor delivers values
   std::atomic<int16_t> accX{0}, accY{0}, accZ{0};
@@ -107,7 +110,11 @@ struct CamTelemetry {
   std::atomic<int8_t> led{-1};              // last state confirmed by the camera
   std::atomic<bool> ledSupported{false};
   std::atomic<bool> ledDimmable{false};     // brightness adjustable (JHCMD/MAX-VIEW)
-  std::atomic<uint16_t> width{0}, height{0};  // per video header (Soulear wrongly reports 640x480)
+  std::atomic<bool> hasButtons{false};      // camera reports its own buttons (see CamKey)
+  std::atomic<uint8_t> key{0};              // last CamKey pressed on the camera
+  std::atomic<uint16_t> keySeq{0};          // counts button presses
+  void press(uint8_t k) { key = k; keySeq++; }  // for the camera sessions
+  std::atomic<uint16_t> width{0}, height{0};  // per video header (Soulear wrongly reports 640x480)  // per video header (Soulear wrongly reports 640x480)
   char vendor[33] = "", product[33] = "", firmware[17] = "";  // guarded by infoMux
   void reset();
 };

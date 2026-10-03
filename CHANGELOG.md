@@ -6,6 +6,9 @@ Entries up to the first build were reconstructed from the commit history.
 
 ## [Unreleased]
 
+### Added
+- MAX-VIEW: the zoom and photo buttons of the camera are reported (`/led` returns `key` and `seq`).
+
 ## build-6-1ddc315 - 2026-10-02
 
 ### Added

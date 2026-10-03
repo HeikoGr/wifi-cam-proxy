@@ -46,6 +46,7 @@ const uint8_t CMD_STOP[] = {'J', 'H', 'C', 'M', 'D', 0xD0, 0x02};
 //   "JHCMD" 20 00 61 ...     reply to INIT2 (105 bytes, after every handshake): at
 //                            offset 24 the device name ("YPC320"). Byte 7 is always
 //                            0x61, whatever the LED does: not the level.
+//   "JHCMD" 00 <key>        photo 01, zoom+ 04, zoom- 05; 00 00 follows 50 ms later (release)
 // Only the button is reported: commands from the client (20 02) are not.
 // The same level also goes as "FDWN" 20 00 0e 00 01 00 <level> to port 20001: both are
 // received, so a message is only missed if both UDP packets get lost (weak Wi-Fi).
@@ -86,6 +87,7 @@ class JhcmdSession : public CamSession {
     camAddr_.sin_port = htons(CMD_PORT);
     telemetry.ledSupported = true;  // MAX-VIEW: yes; other MaxSee devices have a hardware dimmer
     telemetry.ledDimmable = true;
+    telemetry.hasButtons = true;
     diagReset();
     diagLog("[jhcmd] camera %s, receiving on UDP port %u", IPAddress(camIp).toString().c_str(), VIDEO_PORT);
   }
@@ -384,6 +386,12 @@ class JhcmdSession : public CamSession {
 
   // "JHCMD" 10 20 <level>: LED changed with the light button. Reply to INIT2: name.
   void handleMessage(const uint8_t *m, int n) {
+    if (n == 7 && !memcmp(m, "JHCMD", 5) && m[5] == 0x00) {
+      // 00 00 = release, ignored
+      uint8_t key = m[6] == 0x01 ? KEY_PHOTO : m[6] == 0x04 ? KEY_ZOOM_IN : m[6] == 0x05 ? KEY_ZOOM_OUT : KEY_NONE;
+      if (key) telemetry.press(key);
+      return;
+    }
     if (n < 8 || memcmp(m, "JHCMD", 5)) return;
     if (m[5] == 0x10 && m[6] == 0x20 && m[7] <= 100) {
       telemetry.led = m[7] ? 1 : 0;

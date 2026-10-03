@@ -636,8 +636,9 @@ static void handleAutoScan(Request &r) {
 // Tiny status for the live page's one-second polling (the full /cameras.json costs a
 // 3 KB buffer per request, too much while a 720p stream needs the heap)
 static void handleLedGet(Request &r) {
-  char json[64];
-  int n = snprintf(json, sizeof(json), "{\"led\":%d,\"level\":%d}", (int)telemetry.led, (int)ledLevel);
+  char json[96];
+  int n = snprintf(json, sizeof(json), "{\"led\":%d,\"level\":%d,\"key\":%u,\"seq\":%u}", (int)telemetry.led,
+                   (int)ledLevel, (unsigned)telemetry.key, (unsigned)telemetry.keySeq);
   sendResponse(r.fd, 200, "OK", "application/json", json, n);
 }
 

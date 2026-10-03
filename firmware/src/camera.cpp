@@ -37,6 +37,8 @@ void CamTelemetry::reset() {
   led = -1;
   ledSupported = false;
   ledDimmable = false;
+  hasButtons = false;
+  key = 0;
   width = height = 0;
   portENTER_CRITICAL(&infoMux);
   vendor[0] = product[0] = firmware[0] = 0;
@@ -700,12 +702,13 @@ size_t cameraJson(char *out, size_t len) {
   add(snprintf(out + o, room(),
                ",\"pref_proto\":\"%s\",\"autoscan\":%s,\"enabled\":%s,\"recognized\":%d,\"scan_age_s\":%ld,"
                "\"orientation\":%s,\"battery\":%d,\"charging\":%d,\"led\":%d,\"led_supported\":%s,"
-               "\"led_dimmable\":%s,\"led_level\":%d,\"battery_raw\":%d,"
+               "\"led_dimmable\":%s,\"led_level\":%d,\"battery_raw\":%d,\"buttons\":%s,"
                "\"width\":%u,\"height\":%u,\"rotation\":%d,\"vendor\":",
                protoKey(prefProto), autoScan ? "true" : "false", enabled ? "true" : "false", recognized, scanAt ? (long)((millis() - scanAt) / 1000) : -1L,
                telemetry.hasOrientation ? "true" : "false", (int)telemetry.battery,
                (int)telemetry.charging, (int)telemetry.led, telemetry.ledSupported ? "true" : "false",
                telemetry.ledDimmable ? "true" : "false", (int)ledLevel, (int)telemetry.batteryRaw,
+               telemetry.hasButtons ? "true" : "false",
                (unsigned)telemetry.width, (unsigned)telemetry.height, cameraImageRotation()));
   add(jsonStr(out + o, room(), vendor));
   add(snprintf(out + o, room(), ",\"product\":"));
