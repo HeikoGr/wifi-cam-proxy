@@ -88,7 +88,7 @@ static void collapseFill(std::vector<uint8_t> &j) {
 
 static void live(const Frame &f, bool full, const char *name) {
   showLive();
-  zoomFull = full;
+  zoomLevel = full ? Z_1TO1 : Z_FIT;
   shownFps = 17;
   lastFrameAt = millis();
   overlayShown[0] = 0;
@@ -128,7 +128,7 @@ int main(int argc, char **argv) {
   jpeg = new JPEGDEC;
   live(f, true, "cyd-live");
   live(f, false, "cyd-live-fit");
-  zoomFull = true;  // the default
+  zoomLevel = Z_1TO1;  // the default
   showMenu();
   save("cyd-menu");
   showChoose();

@@ -7,6 +7,7 @@
 #define HIGH 1
 inline void pinMode(int, int) {}
 inline void digitalWrite(int, int) {}
+inline uint32_t micros() { return millis() * 1000; }
 struct SerialCyd : SerialStub {
   void begin(int) {}
   void println(const char *s) { ::printf("%s\n", s); }

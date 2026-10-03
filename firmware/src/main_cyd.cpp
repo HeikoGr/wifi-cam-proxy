@@ -15,7 +15,8 @@
  * Zoom "1:1" (default): the centre crop at full resolution, JPEGDEC skips the
  * blocks outside it (setCropArea). Zoom "fit": decoded directly at reduced size
  * (480x480 -> 240x240, 1280x720 -> 320x180). In both cases it reads from the packet
- * list without copying the frame into one piece.
+ * list without copying the frame into one piece. Zoom 2x/4x: the centre crop of a
+ * display divided by 2 or 4, every pixel enlarged in jpgDraw(). Freeze keeps one frame.
  *
  * Usage: tapping the image opens the menu (LED, zoom, choose camera, brightness).
  * There is no orientation correction: in 90° steps (all that is possible without a
@@ -56,19 +57,25 @@ static const int UI_ROT = 1;  // landscape 320x240 for menus and touch
 
 // --- Settings (NVS) ----------------------------------------------------------------
 static uint8_t brightness = 160;
-static bool zoomFull = true;  // 1:1 crop instead of the reduced full image
+enum ZoomLevel : uint8_t { Z_FIT, Z_1TO1, Z_2X, Z_4X, Z_COUNT };
+static const char *const ZOOM_NAMES[Z_COUNT] = {"fit", "1:1", "2x", "4x"};
+static uint8_t zoomLevel = Z_1TO1;  // 2x/4x: the 1:1 pixels of a smaller centre crop, enlarged
+static bool frozen = false;         // still image: the held frame stays on the display
+static Frame held;
+static bool redrawHeld = false;
 
 static void loadSettings() {
   nvsRead([](Preferences &p) {
     brightness = p.getUChar("cyd_bright", 160);
-    zoomFull = p.getBool("cyd_zoom", true);
+    zoomLevel = p.getUChar("cyd_zl", p.getBool("cyd_zoom", true) ? Z_1TO1 : Z_FIT);
+    if (zoomLevel >= Z_COUNT) zoomLevel = Z_1TO1;
   });
 }
 
 static void saveSettings() {
   nvsWrite([](Preferences &p) {
     p.putUChar("cyd_bright", brightness);
-    p.putBool("cyd_zoom", zoomFull);
+    p.putUChar("cyd_zl", zoomLevel);
   });
 }
 
@@ -91,9 +98,31 @@ static void jpgClose(void *) {}
 // its pixel buffer: one goes to the display by DMA while the next group is decoded into
 // the other. pushImageDMA waits for the previous transfer before it starts the next one.
 static bool dmaDraw = false;
+static std::atomic<uint32_t> spiUsSum{0};  // time in jpgDraw() and waiting for DMA, for [stats]
+static int zoomK = 1;  // enlargement of the decoded pixels (2x, 4x)
 static int jpgDraw(JPEGDRAW *d) {
+  uint32_t t0 = micros();
+  if (zoomK > 1) {  // every pixel k times, per source row k display rows in one DMA transfer
+    static uint16_t buf[2][4 * 320];  // alternating: one is on its way while the next is built
+    static int cur = 0;
+    int per = 320 / zoomK;
+    for (int row = 0; row < d->iHeight; row++) {
+      const uint16_t *src = d->pPixels + row * d->iWidth;
+      for (int c0 = 0; c0 < d->iWidth; c0 += per) {
+        int n = min(per, d->iWidth - c0), bw = n * zoomK;
+        uint16_t *b = buf[cur ^= 1];
+        for (int i = 0; i < n; i++)
+          for (int j = 0; j < zoomK; j++) b[i * zoomK + j] = src[c0 + i];
+        for (int j = 1; j < zoomK; j++) memcpy(b + j * bw, b, bw * sizeof(uint16_t));
+        lcd.pushImageDMA((d->x + c0) * zoomK, (d->y + row) * zoomK, bw, zoomK, (const lgfx::swap565_t *)b);
+      }
+    }
+    spiUsSum += micros() - t0;
+    return 1;
+  }
   if (dmaDraw) lcd.pushImageDMA(d->x, d->y, d->iWidth, d->iHeight, (const lgfx::swap565_t *)d->pPixels);
   else lcd.pushImage(d->x, d->y, d->iWidth, d->iHeight, (const lgfx::swap565_t *)d->pPixels);
+  spiUsSum += micros() - t0;
   return 1;
 }
 
@@ -114,7 +143,7 @@ static int lastX = 0, lastY = 0, lastW = 0, lastH = 0, lastRot = -1;  // image g
 static const int OVL_SIDE_W = 38;  // overlay in the side border: needs this much width
 static const int OVL_STRIP = 10;   // otherwise a strip this high above the image
 static bool overlaySide = false;
-static char overlayShown[40] = "";  // last drawn overlay text
+static char overlayShown[72] = "";  // last drawn overlay text
 static uint32_t drawnFrames = 0;
 static std::atomic<uint32_t> drawMsSum{0}, drawMsMax{0};  // decode + SPI time, for [stats]
 static std::atomic<uint32_t> decodeErrors{0};  // JPEGDEC stopped midway: rest of the image is old
@@ -140,14 +169,18 @@ static bool drawFrame(const Frame &f) {
 
   int W = jpeg->getWidth(), H = jpeg->getHeight();
   int dw = lcd.width(), dh = lcd.height();
-  // Crop or scale, MCU groups, DMA ping-pong (include/jpeg_crop.h, host test jpeg_crop_test)
-  DecodePlan plan = planDecode(*jpeg, reader, dw, dh, zoomFull, CYD_USE_DMA, [] { return openJpeg(); });
+  int k = zoomLevel >= Z_2X ? 1 << (zoomLevel - 1) : 1;
+  zoomK = k;
+  // Crop or scale, MCU groups, DMA ping-pong (include/jpeg_crop.h, host test jpeg_crop_test);
+  // enlarged: the plan is made for the display divided by k, without DMA (jpgDraw enlarges)
+  DecodePlan plan = planDecode(*jpeg, reader, dw / k, dh / k, zoomLevel != Z_FIT, CYD_USE_DMA && k == 1,
+                               [] { return openJpeg(); });
   if (!plan.ok) {
     reader.release();
     lcd.setRotation(UI_ROT);
     return false;
   }
-  int dx = plan.dx, dy = plan.dy, opt = plan.opt, x = plan.x, y = plan.y, w = plan.w, h = plan.h;
+  int dx = plan.dx, dy = plan.dy, opt = plan.opt, x = plan.x * k, y = plan.y * k, w = plan.w * k, h = plan.h * k;
   dmaDraw = opt & JPEG_USES_DMA;
 
   // Room for the overlay (top left in UI orientation): in the side border, in the top
@@ -172,11 +205,11 @@ static bool drawFrame(const Frame &f) {
 
   // Log every change of the geometry (to analyse jumps of the image)
   static int geo[8] = {};
-  int now[8] = {W, H, rot, zoomFull, dx, dy, w, h};
+  int now[8] = {W, H, rot, zoomLevel, dx, dy, w, h};
   if (memcmp(geo, now, sizeof(geo))) {
     memcpy(geo, now, sizeof(geo));
     Serial.printf("[geo] jpeg %dx%d, rot %d, %s, decode at %d,%d, visible %d,%d %dx%d\r\n", W, H, rot,
-                  zoomFull ? "1:1" : "fit", dx, dy, x, y, w, h);
+                  ZOOM_NAMES[zoomLevel], dx, dy, x, y, w, h);
   }
 
   lcd.startWrite();
@@ -192,7 +225,11 @@ static bool drawFrame(const Frame &f) {
   }
   lcd.setClipRect(x, y, w, h);  // do not paint edge blocks beyond the image
   if (!jpeg->decode(dx, dy, opt)) decodeErrors++;
-  if (dmaDraw) lcd.waitDMA();  // the last group may still be on its way
+  if (dmaDraw || zoomK > 1) {  // the last group may still be on its way
+    uint32_t t0 = micros();
+    lcd.waitDMA();
+    spiUsSum += micros() - t0;
+  }
   lcd.clearClipRect();
   lcd.endWrite();
   jpeg->close();
@@ -204,28 +241,38 @@ static bool drawFrame(const Frame &f) {
 // Battery and fps in the free border (left of square images, above wide ones) or in
 // the strip the image leaves out. The image never paints there, so only redraw when
 // the text changes (no flicker).
+// Items: battery, fps, zoom, LED (only what the camera reports). Side border: short
+// labels, one per line; strip: one line with the full labels.
 static void drawOverlay() {
-  char line1[16] = "", line2[16], shown[40];
-  if (telemetry.battery >= 0) snprintf(line1, sizeof(line1), "%d%%", (int)telemetry.battery);
-  bool stale = millis() - lastFrameAt > 3000;  // last frame is old
-  snprintf(line2, sizeof(line2), stale ? "old" : "%.0ffps", shownFps);
-  snprintf(shown, sizeof(shown), "%d|%s|%s", overlaySide, line1, line2);
+  const bool side = overlaySide;
+  char item[4][16] = {"", "", "", ""};
+  char shown[72];
+  bool stale = !frozen && millis() - lastFrameAt > 3000;  // last frame is old
+  if (telemetry.battery >= 0) snprintf(item[0], sizeof(item[0]), "%s%d%%", side ? "B:" : "Bat ", (int)telemetry.battery);
+  snprintf(item[1], sizeof(item[1]), frozen ? "hold" : stale ? "old" : "%.0ffps", shownFps);
+  snprintf(item[2], sizeof(item[2]), "%s%s", side ? "Z:" : "Zoom ", ZOOM_NAMES[zoomLevel]);
+  if (telemetry.ledSupported && telemetry.led >= 0) {
+    char v[8];
+    if (telemetry.led != 1) strlcpy(v, "off", sizeof(v));
+    else if (telemetry.ledDimmable) snprintf(v, sizeof(v), "%d%%", (int)ledLevel);
+    else strlcpy(v, "on", sizeof(v));
+    snprintf(item[3], sizeof(item[3]), "%s%s", side ? "L:" : "LED ", v);
+  }
+  snprintf(shown, sizeof(shown), "%d|%s|%s|%s|%s", side, item[0], item[1], item[2], item[3]);
   if (!strcmp(shown, overlayShown)) return;
   strlcpy(overlayShown, shown, sizeof(overlayShown));
   lcd.setFont(&fonts::Font0);
   lcd.setTextDatum(top_left);
-  lcd.setTextPadding(30);  // background behind the whole field: erases longer old text
-  lcd.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-  if (overlaySide) {
-    lcd.drawString(line1, 2, 2);
-    lcd.setTextColor(stale ? TFT_RED : TFT_LIGHTGREY, TFT_BLACK);
-    lcd.drawString(line2, 2, 12);
-  } else {
-    lcd.drawString(line1, 2, 1);
-    lcd.setTextColor(stale ? TFT_RED : TFT_LIGHTGREY, TFT_BLACK);
-    lcd.drawString(line2, 34, 1);
-  }
   lcd.setTextPadding(0);
+  lcd.fillRect(0, 0, side ? OVL_SIDE_W : lcd.width(), side ? 44 : OVL_STRIP, TFT_BLACK);
+  int x = 2, y = side ? 2 : 1;
+  for (int i = 0; i < 4; i++) {
+    if (!item[i][0]) continue;
+    lcd.setTextColor(i == 1 && stale ? TFT_RED : i == 1 && frozen ? TFT_YELLOW : TFT_LIGHTGREY, TFT_BLACK);
+    lcd.drawString(item[i], x, y);
+    if (side) y += 10;
+    else x += lcd.textWidth(item[i]) + 8;
+  }
 }
 
 static void drawStatus(const char *text) {
@@ -251,7 +298,7 @@ static const int GAP = 6;        // margin and space between buttons
 static const int ROW_H = 40;     // height of a row in the camera choice
 static const int MAX_NETS = 8;   // networks shown at most (as many as fit)
 
-enum ButtonId : int8_t { B_LED, B_ZOOM, B_CHOOSE, B_BRIGHT, B_BACK, B_RESCAN, B_PROTO, B_NET0 };
+enum ButtonId : int8_t { B_LED, B_ZOOM, B_CHOOSE, B_BRIGHT, B_BACK, B_RESCAN, B_PROTO, B_FREEZE, B_NET0 };
 
 struct Button {
   int16_t x, y, w, h;
@@ -291,7 +338,7 @@ static void clearForScreen(Screen s) {
   buttonCount = 0;
 }
 
-// Two columns, three rows: LED, zoom / camera, light / back over the whole width
+// Two columns, three rows: LED, zoom / camera, light / freeze, back
 static void showMenu() {
   clearForScreen(Screen::Menu);
   int dw = lcd.width(), dh = lcd.height();
@@ -304,12 +351,15 @@ static void showMenu() {
   else if (telemetry.ledDimmable && telemetry.led == 1) snprintf(ledLabel, sizeof(ledLabel), "LED %d%%", (int)ledLevel);
   else strlcpy(ledLabel, telemetry.led == 1 ? "LED off" : "LED on", sizeof(ledLabel));
   addButton(B_LED, x0, y(0), w, h, ledLabel, led);
-  addButton(B_ZOOM, x1, y(0), w, h, zoomFull ? "Zoom: 1:1" : "Zoom: fit");
+  char zoom[24];
+  snprintf(zoom, sizeof(zoom), "Zoom: %s", ZOOM_NAMES[zoomLevel]);
+  addButton(B_ZOOM, x1, y(0), w, h, zoom);
   addButton(B_CHOOSE, x0, y(1), w, h, "Camera");
   char bright[24];
   snprintf(bright, sizeof(bright), "Light %d%%", brightness * 100 / 255);
   addButton(B_BRIGHT, x1, y(1), w, h, bright);
-  addButton(B_BACK, x0, y(2), dw - 2 * GAP, h, "Back");
+  addButton(B_FREEZE, x0, y(2), w, h, frozen ? "Resume" : "Freeze");
+  addButton(B_BACK, x1, y(2), w, h, "Back");
 }
 
 static ScanEntry nets[MAX_NETS];
@@ -353,6 +403,24 @@ static void showLive() {
   clearForScreen(Screen::Live);
 }
 
+static void setFrozen(bool on) {
+  if (on) {
+    getFrame(held);  // keeps the newest frame out of the store's reuse
+    frozen = (bool)held;
+    redrawHeld = frozen;
+  } else {
+    held.reset();
+    frozen = false;
+  }
+  overlayShown[0] = 0;
+}
+
+static void setZoom(int level) {
+  zoomLevel = constrain(level, 0, Z_COUNT - 1);
+  redrawHeld = frozen;
+  saveSettings();
+}
+
 static void onTouch(int tx, int ty) {
   if (screen == Screen::Live) return showMenu();
   int b = hitButton(tx, ty);
@@ -369,7 +437,8 @@ static void onTouch(int tx, int ty) {
         }
         ledRequest = telemetry.led == 1 ? 0 : 1;
         return showLive();
-      case B_ZOOM: zoomFull = !zoomFull; saveSettings(); return showMenu();
+      case B_ZOOM: setZoom((zoomLevel + 1) % Z_COUNT); return showMenu();
+      case B_FREEZE: setFrozen(!frozen); return showLive();
       case B_CHOOSE: cameraRequestScan(); return showChoose();
       case B_BRIGHT:
         brightness = brightness >= 255 ? 40 : brightness >= 160 ? 255 : brightness >= 90 ? 160 : 90;
@@ -402,7 +471,18 @@ static void onTouch(int tx, int ty) {
 static void displayTask(void *) {
   uint32_t lastSeq = 0, lastTouch = 0, lastOverlay = 0, fpsSince = millis(), fpsFrames = 0;
   bool touching = false;
+  uint16_t lastKey = telemetry.keySeq;
   for (;;) {
+    // Buttons of the camera (JHCMD): zoom+ / zoom- change the zoom level, photo = still image
+    if (telemetry.keySeq != lastKey) {
+      lastKey = telemetry.keySeq;
+      int key = telemetry.key;
+      if (screen == Screen::Live) {
+        if (key == KEY_ZOOM_IN) setZoom(zoomLevel + 1);
+        else if (key == KEY_ZOOM_OUT) setZoom(zoomLevel - 1);
+        else if (key == KEY_PHOTO) setFrozen(!frozen);
+      }
+    }
     // Touch: react to the touch only, not to holding
     lgfx::touch_point_t tp;
     bool t = lcd.getTouch(&tp) > 0;
@@ -425,6 +505,18 @@ static void displayTask(void *) {
     }
 
     Frame f;
+    if (frozen) {
+      if (redrawHeld || lastRot < 0) {
+        redrawHeld = false;
+        drawFrame(held);
+      }
+      if (millis() - lastOverlay >= 1000) {
+        lastOverlay = millis();
+        drawOverlay();
+      }
+      vTaskDelay(pdMS_TO_TICKS(30));
+      continue;
+    }
     uint32_t seq = getFrame(f);
     bool drew = false;
     if (f && seq != lastSeq) {
@@ -542,16 +634,18 @@ void loop() {
     // Artifacts with "damaged" > 0: Wi-Fi (packet loss). Without: look at draw ms vs.
     // the frame interval of the camera.
     Serial.printf("[stats] received %.1f fps, shown %.1f fps | lost pkts %u, damaged %u, incomplete %u, "
-                  "too big %u, no mem %u, released %u, handshakes %u, RSSI %d | draw avg %u ms max %u ms, decode errors %u | battery %d%%%s | "
+                  "too big %u, no mem %u, released %u, handshakes %u, RSSI %d | zoom %s, draw avg %u ms (SPI %u ms) max %u ms, decode errors %u | battery %d%%%s | "
                   "heap %u (min %u) | largest frame %u KB | CPU %d/%d %%\r\n",
                   (total - lastFrames) / dt, (drawn - lastDrawn) / dt, lost - lastLost,
                   damaged - lastDamaged, incomplete - lastIncomplete, tooBig - lastTooBig, noMem - lastNoMem,
                   released - lastReleased,
-                  (unsigned)stats.handshakes, (int)WiFi.RSSI(),
+                  (unsigned)stats.handshakes, (int)WiFi.RSSI(), ZOOM_NAMES[zoomLevel],
                   drawn > lastDrawn ? (unsigned)(drawMsSum / (drawn - lastDrawn)) : 0u,
+                  drawn > lastDrawn ? (unsigned)(spiUsSum / 1000 / (drawn - lastDrawn)) : 0u,
                   (unsigned)drawMsMax, decodeErr - lastDecodeErr, (int)telemetry.battery, telemetry.charging == 1 ? " (charging?)" : "",
                   heapFree(), minNow, (unsigned)(stats.maxFrameBytes / 1024), cpuLoad(0), cpuLoad(1));
     drawMsSum = 0;
+    spiUsSum = 0;
     drawMsMax = 0;
     lastFrames = total;
     lastDrawn = drawn;
