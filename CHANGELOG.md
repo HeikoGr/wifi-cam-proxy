@@ -8,6 +8,7 @@ Entries up to the first build were reconstructed from the commit history.
 
 ### Added
 - MAX-VIEW: the zoom and photo buttons of the camera are reported (`/led` returns `key` and `seq`).
+- Web UI: zoom steps 1x, 2x, 4x and a freeze button; the camera's zoom and photo buttons control them, and the image rotation stays fixed while frozen.
 
 ## build-6-1ddc315 - 2026-10-02
 

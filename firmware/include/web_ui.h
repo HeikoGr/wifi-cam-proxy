@@ -203,7 +203,9 @@ function mjpeg(img,url,onState,onFrame){
   const show=jpg=>{
     const u=URL.createObjectURL(new Blob([jpg],{type:'image/jpeg'}));
     img.onload=()=>{if(prev&&prev!==u)URL.revokeObjectURL(prev);prev=u};
-    img.src=u;last=Date.now();onState('');if(onFrame)onFrame();
+    last=Date.now();onState('');
+    if(img.dataset.frozen){URL.revokeObjectURL(u);return}
+    img.src=u;if(onFrame)onFrame();
   };
   async function run(){
     ctl=new AbortController();
@@ -250,7 +252,7 @@ static const char INDEX_HTML[] = PAGE_HEAD("WiFi-Cam")
 #img{max-width:100%;max-height:72vh;min-width:240px;min-height:240px;background:#000}
 .camline{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;margin:0 0 12px}
 .toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:4px;margin:14px 0 4px}
-#ledBtn.on{background:#f5c518;border-color:#f5c518;color:#111}
+#ledBtn.on,#freeze.on{background:#f5c518;border-color:#f5c518;color:#111}
 #view{position:relative}
 #vstate{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:20px;
  text-align:center;line-height:1.5;color:var(--muted);background:rgba(14,16,21,.72)}
@@ -262,6 +264,7 @@ static const char INDEX_HTML[] = PAGE_HEAD("WiFi-Cam")
 <div id='view' title='Double-click: zoom'><div id='wrap'><img id='img' alt=''></div><div id='vstate'>Connecting…</div></div>
 <div class='toolbar'>
 <button id='zoom' title='Zoom in, then drag the image with the mouse or a finger'>2&times;</button>
+<button id='freeze' title='Hold the current image (also the photo button of the camera)'>&#10074;&#10074; Freeze</button>
 <span id='ori'><label class='switch'><input type='checkbox' id='on'>Correct orientation</label>
 <label class='switch'><input type='checkbox' id='round'>Round</label>
 <button id='zero'>Current position = up</button>
@@ -277,13 +280,18 @@ static const char INDEX_HTML[] = PAGE_HEAD("WiFi-Cam")
 let cal=Object.assign({},DEFAULT_CAL), hasOri=true, camRot=0;  // camRot: /cameras.json rotation
 const view={z:1,px:0,py:0}, sm=new Smoother(), rot=rotator($('wrap'),view);
 // zoom 2x: pan the crop by dragging, at most up to the image edge
-function setZoom(z){view.z=z;view.px=view.py=0;$('zoom').innerHTML=z>1?'1&times;':'2&times;';$('view').classList.toggle('z',z>1);rot()}
+// steps 1x, 2x, 4x (zoom buttons of the camera: up and down)
+function setZoom(z){view.z=z;view.px=view.py=0;$('zoom').innerHTML=(z>=4?1:z*2)+'&times;';$('view').classList.toggle('z',z>1);rot()}
+function stepZoom(d){setZoom(Math.max(1,Math.min(4,d>0?view.z*2:view.z/2)))}
+function toggleFreeze(){const f=!$('img').dataset.frozen;if(f)$('img').dataset.frozen='1';else delete $('img').dataset.frozen;
+  $('freeze').innerHTML=f?'&#9654; Resume':'&#10074;&#10074; Freeze';$('freeze').className=f?'on':'';if(!f)apply()}
+$('freeze').onclick=toggleFreeze;
 function clampPan(){
   const mx=(view.z-1)*$('img').clientWidth/2, my=(view.z-1)*$('img').clientHeight/2;
   view.px=Math.max(-mx,Math.min(mx,view.px));view.py=Math.max(-my,Math.min(my,view.py));
 }
-$('zoom').onclick=()=>setZoom(view.z>1?1:2);
-$('view').ondblclick=()=>setZoom(view.z>1?1:2);
+$('zoom').onclick=()=>setZoom(view.z>=4?1:view.z*2);
+$('view').ondblclick=()=>setZoom(view.z>=4?1:view.z*2);
 let drag=null;
 $('view').onpointerdown=e=>{if(view.z>1){drag={x:e.clientX-view.px,y:e.clientY-view.py};$('view').setPointerCapture(e.pointerId);$('wrap').style.transition='none'}};
 $('view').onpointermove=e=>{if(drag){view.px=e.clientX-drag.x;view.py=e.clientY-drag.y;clampPan();rot()}};
@@ -295,7 +303,7 @@ $('round').onchange=()=>{store.set('round',$('round').checked);applyRound()};
 applyRound();
 $('on').checked=store.get('on',false);
 // without an orientation sensor (e.g. microscope): image unrotated, orientation controls off
-function apply(){rot(hasOri?imageRotation($('on').checked,sm,cal,camRot):camRot)}
+function apply(){if($('img').dataset.frozen)return;rot(hasOri?imageRotation($('on').checked,sm,cal,camRot):camRot)}
 $('on').onchange=()=>{store.set('on',$('on').checked);apply()};
 $('zero').onclick=async()=>{
   if(!sm.have)return;
@@ -343,7 +351,7 @@ async function info(){
     if(ori)startOri();
   }
   $('ledBtn').hidden=!c.led_supported;
-  $('ledLvl').hidden=!c.led_dimmable;ledFast=!!c.led_dimmable;
+  $('ledLvl').hidden=!c.led_dimmable;ledFast=!!c.led_dimmable||!!c.buttons;
   showLed(c.led,c.led_level,c.led_dimmable);
 }
 // LED state from /cameras.json or /led: button and (dimmable) slider; off = slider at 0
@@ -353,8 +361,14 @@ function showLed(led,level,dimmable){
   if(led>=0&&(led===1)!==ledOn){ledOn=led===1;applyLed()}
 }
 async function ledPoll(){
-  try{const l=await (await fetch('/led',{cache:'no-store'})).json();showLed(l.led,l.level,true)}catch(e){}
+  try{
+    const l=await (await fetch('/led',{cache:'no-store'})).json();showLed(l.led,l.level,true);
+    // camera buttons (CamKey): 2 zoom in, 3 zoom out, 1 photo = freeze; the first answer only sets the count
+    if(keySeq!==null&&l.seq!==keySeq){if(l.key===2)stepZoom(1);else if(l.key===3)stepZoom(-1);else if(l.key===1)toggleFreeze()}
+    keySeq=l.seq;
+  }catch(e){}
 }
+let keySeq=null;
 applyLed();
 apply();
 // status every 5 s; with a dimmable LED the small /led every second in between, so the
