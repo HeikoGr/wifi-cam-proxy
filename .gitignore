@@ -29,3 +29,6 @@ Thumbs.db
 
 # Python environment from setup-build-env.sh
 .venv/
+
+# CMake Tools build directory (VS Code)
+/build/
