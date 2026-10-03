@@ -287,7 +287,8 @@ class I4seasonSession : public CamSession {
     ledTries_++;
   }
 
-  // Status push on UDP 10007: cmd 0x0009, payload type 0x02, payload byte 1 = battery
+  // Status push on UDP 10007: cmd 0x0009, payload type 0x02, payload byte 1 = battery,
+  // byte 5 (packet byte 17) = counter that rises with every press of the otoscope button
   void pollNotify() {
     lastNotify_ = millis();
     if (notify_ < 0) return;
@@ -295,9 +296,13 @@ class I4seasonSession : public CamSession {
     for (int i = 0; i < 4; i++) {
       int m = recv(notify_, buf, sizeof(buf), MSG_DONTWAIT);
       if (m <= 0) return;
-      if (m >= 14 && memcmp(buf, MAGIC, 4) == 0 && (buf[6] | (buf[7] << 8)) == CMD_STATUS &&
-          buf[12] == 0x02)
+      if (m >= 18 && memcmp(buf, MAGIC, 4) == 0 && (buf[6] | (buf[7] << 8)) == CMD_STATUS &&
+          buf[12] == 0x02) {
         setBattery(buf[13]);
+        telemetry.hasButtons = true;
+        if (btnCount_ >= 0 && buf[17] != btnCount_) telemetry.press(KEY_PHOTO);
+        btnCount_ = buf[17];
+      }
     }
   }
 
@@ -316,6 +321,7 @@ class I4seasonSession : public CamSession {
   uint32_t lastStart_ = 0;     // last START (handshake)
   uint32_t lastLoss_ = 0;      // last gap in the packet number
   uint32_t lastNotify_ = 0;
+  int btnCount_ = -1;          // button press counter of the last status push
   uint8_t loggedReplies_ = 0, loggedData_ = 0;  // logPacket()
   uint16_t cmdSeq_ = 5;
   uint32_t ledSent_ = 0;
