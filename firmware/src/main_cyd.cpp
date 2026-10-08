@@ -52,8 +52,7 @@ void wifiApplyMode() {
 
 static LGFX lcd;
 static JPEGDEC *jpeg = nullptr;  // ~18 KB, allocated once
-
-static const int UI_ROT = 1;  // landscape 320x240 for menus and touch
+static int ui = 1;  // size of texts and buttons: 1 on the CYD's 320x240, 2 on 800x480
 
 // --- Settings (NVS) ----------------------------------------------------------------
 static uint8_t brightness = 160;
@@ -100,12 +99,14 @@ static void jpgClose(void *) {}
 static bool dmaDraw = false;
 static std::atomic<uint32_t> spiUsSum{0};  // time in jpgDraw() and waiting for DMA, for [stats]
 static int zoomK = 1;  // enlargement of the decoded pixels (2x, 4x)
+
+
 static int jpgDraw(JPEGDRAW *d) {
   uint32_t t0 = micros();
   if (zoomK > 1) {  // every pixel k times, per source row k display rows in one DMA transfer
-    static uint16_t buf[2][4 * 320];  // alternating: one is on its way while the next is built
+    static uint16_t buf[2][4 * CYD_MAX_WIDTH];  // alternating: one is on its way while the next is built
     static int cur = 0;
-    int per = 320 / zoomK;
+    int per = CYD_MAX_WIDTH / zoomK;
     for (int row = 0; row < d->iHeight; row++) {
       const uint16_t *src = d->pPixels + row * d->iWidth;
       for (int c0 = 0; c0 < d->iWidth; c0 += per) {
@@ -132,7 +133,7 @@ static int jpgDraw(JPEGDRAW *d) {
 // CYD_ROTATE_DIR is the direction of setRotation() for +90 degrees.
 static int imageRotation() {
   int quarters = (cameraImageRotation() % 360 + 405) / 90 % 4;  // clockwise, rounded: 0..3
-  return ((UI_ROT + quarters * CYD_ROTATE_DIR) % 4 + 4) % 4;
+  return ((CYD_UI_ROT + quarters * CYD_ROTATE_DIR) % 4 + 4) % 4;
 }
 
 // --- Display ----------------------------------------------------------------------
@@ -140,8 +141,8 @@ enum class Screen { Live, Menu, Choose };
 static Screen screen = Screen::Live;
 static uint32_t screenSince = 0;
 static int lastX = 0, lastY = 0, lastW = 0, lastH = 0, lastRot = -1;  // image geometry
-static const int OVL_SIDE_W = 38;  // overlay in the side border: needs this much width
-static const int OVL_STRIP = 10;   // otherwise a strip this high above the image
+static int ovlSideW = 38;  // overlay in the side border: needs this much width (x ui)
+static int ovlStrip = 10;  // otherwise a strip this high above the image (x ui)
 static bool overlaySide = false;
 static char overlayShown[72] = "";  // last drawn overlay text
 static uint32_t drawnFrames = 0;
@@ -177,28 +178,28 @@ static bool drawFrame(const Frame &f) {
                                [] { return openJpeg(); });
   if (!plan.ok) {
     reader.release();
-    lcd.setRotation(UI_ROT);
+    lcd.setRotation(CYD_UI_ROT);
     return false;
   }
   int dx = plan.dx, dy = plan.dy, opt = plan.opt, x = plan.x * k, y = plan.y * k, w = plan.w * k, h = plan.h * k;
   dmaDraw = opt & JPEG_USES_DMA;
 
   // Room for the overlay (top left in UI orientation): in the side border, in the top
-  // border, or else a black strip of OVL_STRIP pixels that the image leaves out. The
+  // border, or else a black strip of ovlStrip pixels that the image leaves out. The
   // strip is cut at both opposite edges, so it does not matter in which direction
   // setRotation() turns: one of them is the UI top.
-  int turn = ((rot - UI_ROT) % 4 + 4) % 4;
+  int turn = ((rot - CYD_UI_ROT) % 4 + 4) % 4;
   int uiW = turn & 1 ? dh : dw, uiH = turn & 1 ? dw : dh;  // display in UI orientation
   int imgW = turn & 1 ? h : w, imgH = turn & 1 ? w : h;    // image in UI orientation
-  overlaySide = (uiW - imgW) / 2 >= OVL_SIDE_W;
-  if (!overlaySide && (uiH - imgH) / 2 < OVL_STRIP) {
+  overlaySide = (uiW - imgW) / 2 >= ovlSideW;
+  if (!overlaySide && (uiH - imgH) / 2 < ovlStrip) {
     if (turn & 1) {
-      int x1 = min(x + w, dw - OVL_STRIP);
-      x = max(x, OVL_STRIP);
+      int x1 = min(x + w, dw - ovlStrip);
+      x = max(x, ovlStrip);
       w = x1 - x;
     } else {
-      int y1 = min(y + h, dh - OVL_STRIP);
-      y = max(y, OVL_STRIP);
+      int y1 = min(y + h, dh - ovlStrip);
+      y = max(y, ovlStrip);
       h = y1 - y;
     }
   }
@@ -233,7 +234,7 @@ static bool drawFrame(const Frame &f) {
   lcd.clearClipRect();
   lcd.endWrite();
   jpeg->close();
-  lcd.setRotation(UI_ROT);
+  lcd.setRotation(CYD_UI_ROT);
   reader.release();
   return true;
 }
@@ -262,17 +263,25 @@ static void drawOverlay() {
   if (!strcmp(shown, overlayShown)) return;
   strlcpy(overlayShown, shown, sizeof(overlayShown));
   lcd.setFont(&fonts::Font0);
+  lcd.setTextSize(ui);
   lcd.setTextDatum(top_left);
   lcd.setTextPadding(0);
-  lcd.fillRect(0, 0, side ? OVL_SIDE_W : lcd.width(), side ? 44 : OVL_STRIP, TFT_BLACK);
-  int x = 2, y = side ? 2 : 1;
+  lcd.fillRect(0, 0, side ? ovlSideW : lcd.width(), side ? 44 * ui : ovlStrip, TFT_BLACK);
+  int x = 2 * ui, y = side ? 2 * ui : ui;
   for (int i = 0; i < 4; i++) {
     if (!item[i][0]) continue;
     lcd.setTextColor(i == 1 && stale ? TFT_RED : i == 1 && frozen ? TFT_YELLOW : TFT_LIGHTGREY, TFT_BLACK);
     lcd.drawString(item[i], x, y);
-    if (side) y += 10;
-    else x += lcd.textWidth(item[i]) + 8;
+    if (side) y += 10 * ui;
+    else x += lcd.textWidth(item[i]) + 8 * ui;
   }
+  lcd.setTextSize(1);
+}
+
+static const lgfx::IFont *fontLarge() { return ui > 1 ? &fonts::DejaVu40 : &fonts::DejaVu18; }
+static const lgfx::IFont *fontSmall() {
+  if (ui > 1) return &fonts::DejaVu24;
+  return &fonts::Font2;
 }
 
 static void drawStatus(const char *text) {
@@ -281,21 +290,21 @@ static void drawStatus(const char *text) {
   lastW = lastH = 0;
   lastRot = -1;
   lcd.fillScreen(TFT_BLACK);
-  lcd.setFont(&fonts::DejaVu18);
+  lcd.setFont(fontLarge());
   lcd.setTextDatum(middle_center);
   lcd.setTextColor(TFT_WHITE, TFT_BLACK);
-  lcd.drawString(text, lcd.width() / 2, lcd.height() / 2 - 12);
-  lcd.setFont(&fonts::Font2);
+  lcd.drawString(text, lcd.width() / 2, lcd.height() / 2 - 12 * ui);
+  lcd.setFont(fontSmall());
   lcd.setTextColor(TFT_DARKGREY, TFT_BLACK);
-  lcd.drawString("Tap: menu", lcd.width() / 2, lcd.height() / 2 + 18);
+  lcd.drawString("Tap: menu", lcd.width() / 2, lcd.height() / 2 + 18 * ui);
 }
 
 // --- Menu ---------------------------------------------------------------------------
 // Laid out from the display size (lcd.width()/height() in UI orientation), so a larger
 // display gets larger buttons and more rows in the camera choice. Buttons are found by
 // their id, not by their position in the list.
-static const int GAP = 6;        // margin and space between buttons
-static const int ROW_H = 40;     // height of a row in the camera choice
+static int gap = 6;    // margin and space between buttons (x ui)
+static int rowH = 40;  // height of a row in the camera choice (x ui)
 static const int MAX_NETS = 8;   // networks shown at most (as many as fit)
 
 enum ButtonId : int8_t { B_LED, B_ZOOM, B_CHOOSE, B_BRIGHT, B_BACK, B_RESCAN, B_PROTO, B_FREEZE, B_NET0 };
@@ -310,13 +319,13 @@ static int buttonCount = 0;
 
 static void addButton(int id, int x, int y, int w, int h, const char *label, bool enabled = true) {
   buttons[buttonCount++] = {(int16_t)x, (int16_t)y, (int16_t)w, (int16_t)h, (int8_t)id, enabled};
-  lcd.fillRoundRect(x, y, w, h, 8, enabled ? 0x2945 : 0x1082);
-  lcd.setFont(&fonts::DejaVu18);
+  lcd.fillRoundRect(x, y, w, h, 8 * ui, enabled ? 0x2945 : 0x1082);
+  lcd.setFont(fontLarge());
   lcd.setTextDatum(middle_center);
   lcd.setTextColor(enabled ? TFT_WHITE : TFT_DARKGREY);
   char text[40];  // shortened to the button width (long SSIDs)
   strlcpy(text, label, sizeof(text));
-  for (size_t n = strlen(text); n > 1 && lcd.textWidth(text) > w - 12;) text[--n] = 0;
+  for (size_t n = strlen(text); n > 1 && lcd.textWidth(text) > w - 12 * ui;) text[--n] = 0;
   lcd.drawString(text, x + w / 2, y + h / 2);
 }
 
@@ -342,9 +351,9 @@ static void clearForScreen(Screen s) {
 static void showMenu() {
   clearForScreen(Screen::Menu);
   int dw = lcd.width(), dh = lcd.height();
-  int w = (dw - 3 * GAP) / 2, h = (dh - 4 * GAP) / 3;
-  int x0 = GAP, x1 = 2 * GAP + w;
-  auto y = [&](int row) { return GAP + row * (h + GAP); };
+  int w = (dw - 3 * gap) / 2, h = (dh - 4 * gap) / 3;
+  int x0 = gap, x1 = 2 * gap + w;
+  auto y = [&](int row) { return gap + row * (h + gap); };
   bool led = telemetry.ledSupported;
   char ledLabel[24];
   if (!led) strlcpy(ledLabel, "LED -", sizeof(ledLabel));
@@ -366,13 +375,13 @@ static ScanEntry nets[MAX_NETS];
 static int netCount = 0;
 static int protoIndex = 0;  // protoChoice(protoIndex) for the camera choice
 
-static int barY() { return lcd.height() - GAP - ROW_H; }  // row with rescan, protocol, back
+static int barY() { return lcd.height() - gap - rowH; }  // row with rescan, protocol, back
 
 // One row per open network (as many as fit above the bottom bar), then the bar
 static void showChoose() {
   clearForScreen(Screen::Choose);
   int dw = lcd.width();
-  int rows = min(MAX_NETS, (barY() - GAP) / (ROW_H + GAP));
+  int rows = min(MAX_NETS, (barY() - gap) / (rowH + gap));
   // Only open networks (no keyboard, no password), recognised cameras first
   ScanEntry all[16];
   int n = cameraNetworks(all, 16);
@@ -385,18 +394,18 @@ static void showChoose() {
   for (int i = 0; i < netCount; i++) {
     char label[40];
     snprintf(label, sizeof(label), "%s%s", strcmp(nets[i].ssid, cur) ? "" : "> ", nets[i].ssid);
-    addButton(B_NET0 + i, GAP, GAP + i * (ROW_H + GAP), dw - 2 * GAP, ROW_H, label);
+    addButton(B_NET0 + i, gap, gap + i * (rowH + gap), dw - 2 * gap, rowH, label);
   }
   if (!netCount) {
-    lcd.setFont(&fonts::DejaVu18);
+    lcd.setFont(fontLarge());
     lcd.setTextDatum(middle_center);
     lcd.setTextColor(TFT_LIGHTGREY);
     lcd.drawString("No open networks", dw / 2, barY() / 2);
   }
-  int w = (dw - 4 * GAP) / 3;
-  addButton(B_RESCAN, GAP, barY(), w, ROW_H, "Rescan");
-  addButton(B_PROTO, 2 * GAP + w, barY(), w, ROW_H, protoKey(protoChoice(protoIndex)));  // protocol for the next connect
-  addButton(B_BACK, 3 * GAP + 2 * w, barY(), w, ROW_H, "Back");
+  int w = (dw - 4 * gap) / 3;
+  addButton(B_RESCAN, gap, barY(), w, rowH, "Rescan");
+  addButton(B_PROTO, 2 * gap + w, barY(), w, rowH, protoKey(protoChoice(protoIndex)));  // protocol for the next connect
+  addButton(B_BACK, 3 * gap + 2 * w, barY(), w, rowH, "Back");
 }
 
 static void showLive() {
@@ -455,10 +464,10 @@ static void onTouch(int tx, int ty) {
     if (b == B_RESCAN) {
       cameraRequestScan();
       screenSince = millis();
-      lcd.setFont(&fonts::Font2);
+      lcd.setFont(fontSmall());
       lcd.setTextDatum(middle_center);
       lcd.setTextColor(TFT_YELLOW, TFT_BLACK);
-      lcd.drawString(" scanning... ", lcd.width() / 2, barY() - 12);
+      lcd.drawString(" scanning... ", lcd.width() / 2, barY() - 12 * ui);
     }
     if (b == B_BACK) return showLive();
     if (b == B_PROTO) {  // next protocol (auto -> i4season -> jhcmd -> ...)
@@ -567,6 +576,15 @@ static void displayTask(void *) {
 }
 
 // --- Start ------------------------------------------------------------------------
+// Texts and buttons grow with the display; called once, in UI orientation
+static void scaleUi() {
+  ui = lcd.width() >= 640 ? 2 : 1;
+  ovlSideW *= ui;
+  ovlStrip *= ui;
+  gap *= ui;
+  rowH *= ui;
+}
+
 static void onNetworkEvent(arduino_event_id_t event, arduino_event_info_t info) {
   if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
     crumb("wifi connected %s, RSSI %d", WiFi.SSID().c_str(), WiFi.RSSI());
@@ -599,9 +617,10 @@ void setup() {
     cfg.freq_write = CYD_SPI_WRITE_HZ;
     spi->config(cfg);  // takes effect with the next transaction
   }
-  lcd.setRotation(UI_ROT);
+  lcd.setRotation(CYD_UI_ROT);
   lcd.setBrightness(brightness);
   lcd.fillScreen(TFT_BLACK);
+  scaleUi();
   jpeg = new (std::nothrow) JPEGDEC;
   if (!jpeg) {
     lcd.drawString("No memory for JPEG", 10, 10);

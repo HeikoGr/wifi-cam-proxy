@@ -54,6 +54,8 @@
 #define LED_RED_GPIO       -1
 #define ZIGBEE_NRST_GPIO   -1
 #define CYD_RGB_LED_PINS   {4, 16, 17}     // RGB LED, active LOW: switched off at startup
+#define CYD_UI_ROT         1               // landscape 320x240 for menus and touch
+#define CYD_MAX_WIDTH      320
 // Direction of setRotation() that turns the image by +90° (clockwise): +1 or -1. The
 // rotation per camera model comes from cameraImageRotation() (otoscope: -90°).
 #define CYD_ROTATE_DIR     1

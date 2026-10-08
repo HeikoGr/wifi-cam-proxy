@@ -365,11 +365,12 @@ variant), Wi-Fi RSSI −26 to −49 dBm:
   image is younger than 3 s it keeps that image instead of drawing "Waiting for image...".
 - **Display size:** image path (crop, scaling, centring, overlay) and the menus are laid out
   from `lcd.width()`/`lcd.height()`; nothing assumes 320×240. A larger display gets larger
-  menu buttons and more networks in the camera choice (up to 8). Another board needs its own
-  `BOARD_*` block in `config.h` and LovyanGFX setup (the autodetect is limited to the CYD
-  variants). Limit: in "fit" JPEGDEC scales only by 1, ½, ¼ or ⅛.
-- **Overlay** (battery, fps): sits in the side border or in a 10 px strip that the image leaves
-  out at 1:1, and is only redrawn when its text changes (no flicker).
+  menu buttons and more networks in the camera choice (up to 8); from 640 px width texts,
+  gaps and the overlay are twice as large (`ui`). Another board needs its own `BOARD_*` block
+  in `config.h` and LovyanGFX setup (the autodetect is limited to the CYD variants). Limit: in
+  "fit" JPEGDEC scales only by 1, ½, ¼ or ⅛.
+- **Overlay** (battery, fps): sits in the side border or in a 10 px strip (×`ui`) that the image
+  leaves out at 1:1, and is only redrawn when its text changes (no flicker).
 - **No orientation correction:** removed. Arbitrary angles need a frame buffer, and in 90°
   steps the image kept jumping in the hand. Only the fixed rotation of the camera model remains
   (otoscope −90°), rounded to quarter turns.
