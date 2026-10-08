@@ -42,7 +42,8 @@ Make small commits: **one logical change per commit**. A commit must build on it
 - Start with the area when it helps, as in the existing history: `CYD:`, `JHCMD:`, `MAX-VIEW:`,
   `Stream:`, `Web UI:`, `Sniffer:`, `Docs:`, `CI:`, `VS Code:`. No other prefix scheme.
 - Add a body (wrapped at 72) only to explain *why*, e.g. measurements or protocol findings.
-- Do not mention the AI tool in the commit message.
+- Commits made with an AI tool end with a `Co-Authored-By:` line naming it, e.g.
+  `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - Do not push, tag, amend or rewrite published history unless asked.
 
 Good: `JHCMD: heartbeat every 3 s like the app`
