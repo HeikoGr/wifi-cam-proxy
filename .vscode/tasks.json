@@ -48,6 +48,24 @@
       "problemMatcher": []
     },
     {
+      "label": "Build (FNK0115)",
+      "type": "shell",
+      "command": "pio run -e fnk0115",
+      "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" } },
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Flash USB (FNK0115)",
+      "type": "shell",
+      "command": "pio run -e fnk0115 -t upload && pio device monitor",
+      "options": { "cwd": "${workspaceFolder}/firmware", "env": { "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}" } },
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
       "label": "Flash USB (ZB-GW03)",
       "type": "shell",
       "command": "pio run -e zb-gw03 -t upload",
