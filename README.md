@@ -189,7 +189,9 @@ of the setup access point (default `wificam-setup`). Pins, timeouts and defaults
 device later, under `/wifi-setup`.
 
 **4. Build** the environment for your board (the first build takes about 5 minutes: ESP-IDF is rebuilt
-with our settings, later builds take seconds):
+with our settings, later builds take seconds). pioarduino keeps one such build for all boards, so
+switching between the ESP32 boards and the ESP32-S3 (FNK0115) rebuilds it; with `ccache` installed
+(`sudo apt install ccache`) that takes about half as long ([firmware/ccache.py](firmware/ccache.py)):
 
 ```bash
 cd firmware
