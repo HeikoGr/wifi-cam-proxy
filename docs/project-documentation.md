@@ -396,6 +396,9 @@ variant), Wi-Fi RSSI −26 to −49 dBm:
     JPEGDEC's ping-pong buffers) took 590–650 ms per frame instead of 50–90 ms: the driver
     allocates a DMA list, splits the destination at cache lines and invalidates them for every
     transaction, and the rows of an MCU group are not contiguous in the frame buffer.
+  - *Caches:* 32 KB instruction cache and 64 KB data cache with 64-byte lines instead of 16/32 KB
+    and 32 bytes (48 KB of internal RAM): the decoder's code runs on two cores beside Wi-Fi,
+    and the frame buffers are read and written through the data cache.
   - *Memory:* frame chunks in the PSRAM (`FRAME_CHUNKS_IN_PSRAM`): with 720p the frames held
     the internal heap at its reserve and the store gave up ~13 frames a second (`released`).
     Frames up to 192 KB (`MAX_FRAME_BYTES`): the MAX-VIEW's detailed frames reach 98 KB and
@@ -408,9 +411,10 @@ variant), Wi-Fi RSSI −26 to −49 dBm:
     |---|---|---|---|
     | one core | 2.4 | ~400 ms | – |
     | two cores, frames in the PSRAM | 3.4–5.8 | 110–290 ms | 50–90 ms |
+    | and the larger caches | 10–11.6 | 80–110 ms | 22 ms |
 
     With frames in the PSRAM `released` went to 0 (internal heap free 186 KB instead of
-    ~50 KB). `[stats]` adds a line with the frames decoded on
+    ~50 KB; 110 KB with the larger caches). `[stats]` adds a line with the frames decoded on
     two cores, core 1's share of the rows and the free PSRAM.
 - **Overlay** (battery, fps): sits in the side border or in a 10 px strip (×`ui`) that the image
   leaves out at 1:1, and is only redrawn when its text changes (no flicker).

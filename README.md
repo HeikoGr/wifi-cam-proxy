@@ -151,7 +151,8 @@ with the 800×480 IPS panel (FNK0115Q 5.0", FNK0115L 4.3") runs the same display
 large, and at 1:1 the 480×480 otoscope image fits whole. The board has an ESP32-S3
 (N16R8: 16 MB flash, 8 MB octal PSRAM; the schematic says N8R2). The panel shows one of three
 frame buffers in the PSRAM and each live frame whole (no tearing); both cores decode, and the
-frames are kept in the PSRAM. Touch is a GT911. Panel, touch and
+frames are kept in the PSRAM. With the 720p MAX-VIEW at 1:1 (800×440 visible) it shows about
+10–11 fps (2.4 with one core and the default caches). Touch is a GT911. Panel, touch and
 backlight are set up in [lgfx_fnk0115.h](firmware/include/lgfx_fnk0115.h); if the image drifts
 or flickers, lower `FNK_PCLK_HZ` in `config.h`. The TN variants (FNK0115B/R, resistive touch)
 are not supported.
