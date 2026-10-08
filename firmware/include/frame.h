@@ -18,7 +18,8 @@
 
 static const int MAX_CHUNKS = MAX_FRAME_BYTES / 1024 + 1;
 
-// Memory for a frame chunk: preferably in the IRAM remainder, else regular heap.
+// Memory for a frame chunk: in PSRAM (FRAME_CHUNKS_IN_PSRAM), else preferably in the IRAM
+// remainder, else regular heap.
 // Chunks beyond FRAME_RESERVE_FROM only while enough heap remains.
 uint8_t *allocChunk(size_t len, size_t frameSoFar);
 void copyToChunk(uint8_t *dst, const uint8_t *src, size_t len);

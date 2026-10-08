@@ -235,7 +235,8 @@ Frames are **not stored as one contiguous block** but as a list of UDP payloads
 
 - No large `malloc()` → less heap fragmentation
 - Chunks preferably in the **IRAM remainder** (~44 KB, word-addressable only) → regular heap
-  stays free; word-wise copying via `volatile uint32_t*`
+  stays free; word-wise copying via `volatile uint32_t*`. On the FNK0115 in the PSRAM first
+  (`FRAME_CHUNKS_IN_PSRAM`)
 - Reference counting: HTTP clients hold the frame as long as they are sending it
 - **Large frames (720p):** beyond `FRAME_RESERVE_FROM` (48 KB) a chunk is only taken while
   `FRAME_HEAP_RESERVE` (40 KB) stays free. With the MAX-VIEW's 50–85 KB frames the stored
@@ -385,8 +386,12 @@ variant), Wi-Fi RSSI −26 to −49 dBm:
     driver picks the frame buffer per refresh and restarts the DMA only when a refill is
     missing: `CONFIG_LCD_RGB_RESTART_IN_VSYNC=n` (ESP-IDF's default; Arduino's `y` restarted
     every VSYNC through a link that on the ESP32-S3 always starts frame buffer 0).
-  - *Memory:* the JPEG decoder (~18 KB) stays in internal RAM (with PSRAM a large `malloc()`
-    would put it there). No IRAM chunks: the ESP32-S3 has no word-only IRAM remainder.
+  - *Memory:* frame chunks in the PSRAM (`FRAME_CHUNKS_IN_PSRAM`): with 720p the frames held
+    the internal heap at its reserve and the store gave up ~13 frames a second (`released`).
+    Frames up to 192 KB (`MAX_FRAME_BYTES`): the MAX-VIEW's detailed frames reach 98 KB and
+    were dropped at 96 KB (`too big` up to ~12 a second).
+    The JPEG decoder (~18 KB) stays in internal RAM. No IRAM chunks: the ESP32-S3 has no
+    word-only IRAM remainder.
 - **Overlay** (battery, fps): sits in the side border or in a 10 px strip (×`ui`) that the image
   leaves out at 1:1, and is only redrawn when its text changes (no flicker).
 - **No orientation correction:** removed. Arbitrary angles need a frame buffer, and in 90°
@@ -488,8 +493,9 @@ Important constants:
 | `HANDSHAKE_RETRY_MS` | 800 | minimum interval between STARTs |
 | `SHOW_DAMAGED_FRAMES` | 1 (CYD: 0) | show (1) or drop (0) frames with packet loss |
 | `WIFI_MODE_DEFAULT` | `"bg"` | Wi-Fi mode without 11n (every packet on its own) |
-| `MAX_FRAME_BYTES` / `FRAME_RESERVE_FROM` / `FRAME_HEAP_RESERVE` | 96 / 48 / 40 KB (CYD: 48 KB) | largest frame; beyond 48 KB only while 40 KB heap remain free |
+| `MAX_FRAME_BYTES` / `FRAME_RESERVE_FROM` / `FRAME_HEAP_RESERVE` | 96 / 48 / 40 KB (CYD: 48 KB; FNK0115: 192 KB frames) | largest frame; beyond 48 KB only while 40 KB heap remain free |
 | `FRAME_HEAP_FLOOR` | 16 KB (CYD: 48 KB) | no frame chunk from the heap below this, whatever the frame size |
+| `FRAME_CHUNKS_IN_PSRAM` | 0 (FNK0115: 1) | frame chunks in the PSRAM, the rules above only if it is full |
 | `CYD_PAGE_FLIP` / `FNK_PCLK_HZ` | FNK0115 | three frame buffers, live frames shown whole / pixel clock of the RGB panel (13 MHz) |
 | `STREAM_MAX_FPS` | 5 on the ZB-GW03 (10 still stuttered), else 0 (unlimited) | default of the frame rate limit per viewer (changeable under `/settings`, NVS `stream_fps`); the newest frame is sent, the ones in between are skipped. The 720p MAX-VIEW (~22 fps, 33–84 KB) needs 6–15 Mbit/s, more than the 10 Mbit Ethernet of the ZB-GW03 carries |
 

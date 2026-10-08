@@ -26,6 +26,8 @@ static bool releaseIdleFrame();
 
 uint8_t *allocChunk(size_t len, size_t frameSoFar) {
   size_t bytes = (len + 3) & ~(size_t)3;
+  if (FRAME_CHUNKS_IN_PSRAM)
+    if (void *p = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM)) return (uint8_t *)p;
   for (int attempt = 0; attempt < 2; attempt++) {
     void *p = USE_IRAM_CHUNKS ? heap_caps_malloc(bytes, MALLOC_CAP_EXEC) : nullptr;  // IRAM
     // EXEC may also return RTC FAST memory: it is word-only as well and not usable from

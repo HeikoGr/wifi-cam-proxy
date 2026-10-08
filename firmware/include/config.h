@@ -77,6 +77,11 @@
 #define FNK_PCLK_HZ        13000000
 // IRAM and DRAM are one memory on the ESP32-S3: no word-only remainder to use
 #define USE_IRAM_CHUNKS    0
+// Frames in the PSRAM (megabytes free): with 720p the frames held the internal heap at its
+// reserve, the store gave up ~13 frames a second ("released") and the picture stalled
+#define FRAME_CHUNKS_IN_PSRAM 1
+// The MAX-VIEW's detailed 720p frames reach 98 KB: at 96 KB they were dropped ("too big")
+#define MAX_FRAME_BYTES    (192 * 1024)
 #else
 // --- CYD ESP32-2432S028R ----------------------------------------------------------
 // Display (HSPI 13/12/14, DC 2, CS 15, backlight 21) and touch (XPT2046 25/32/39/33)
@@ -168,7 +173,9 @@
 // microscopes (MS5) considerably more. Without PSRAM two such frames barely fit in
 // memory: chunks beyond FRAME_RESERVE_FROM are only accepted while FRAME_HEAP_RESERVE
 // heap remains free afterwards (otherwise the frame is dropped, "drop_nomem").
+#ifndef MAX_FRAME_BYTES
 #define MAX_FRAME_BYTES    (96 * 1024)
+#endif
 #define FRAME_RESERVE_FROM (48 * 1024)       // up to here as before (proven on the otoscope)
 #ifndef FRAME_HEAP_RESERVE
 #define FRAME_HEAP_RESERVE (40 * 1024)       // for the Wi-Fi driver, lwIP and HTTP tasks
@@ -200,6 +207,9 @@
 // --- Experimental switches ----------------------------------------------------------
 #ifndef USE_IRAM_CHUNKS
 #define USE_IRAM_CHUNKS 1
+#endif
+#ifndef FRAME_CHUNKS_IN_PSRAM
+#define FRAME_CHUNKS_IN_PSRAM 0
 #endif
 #ifndef SEND_BLOCK_SEGMENTS
 #define SEND_BLOCK_SEGMENTS 4

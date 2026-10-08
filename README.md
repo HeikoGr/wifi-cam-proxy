@@ -150,7 +150,8 @@ with the 800×480 IPS panel (FNK0115Q 5.0", FNK0115L 4.3") runs the same display
 `pio run -e fnk0115 -t upload` (USB, CH340 with auto-reset). Texts and buttons are twice as
 large, and at 1:1 the 480×480 otoscope image fits whole. The board has an ESP32-S3
 (N16R8: 16 MB flash, 8 MB octal PSRAM; the schematic says N8R2). The panel shows one of three
-frame buffers in the PSRAM and each live frame whole (no tearing). Touch is a GT911. Panel, touch and
+frame buffers in the PSRAM and each live frame whole (no tearing); the frames are kept in the
+PSRAM. Touch is a GT911. Panel, touch and
 backlight are set up in [lgfx_fnk0115.h](firmware/include/lgfx_fnk0115.h); if the image drifts
 or flickers, lower `FNK_PCLK_HZ` in `config.h`. The TN variants (FNK0115B/R, resistive touch)
 are not supported.
@@ -259,7 +260,7 @@ Details on usage, diagnostics and the measurements behind the settings are in
 | [firmware/src/camera.cpp](firmware/src/camera.cpp) | Wi-Fi scan, SSID patterns, selection, video task |
 | [firmware/src/cam_i4season.cpp](firmware/src/cam_i4season.cpp) | i4season protocol (Soulear, MS5, …) |
 | [firmware/src/cam_jhcmd.cpp](firmware/src/cam_jhcmd.cpp) | MaxSee/JoyHonest protocol |
-| [firmware/src/frame.cpp](firmware/src/frame.cpp) | frame store (packet list in the IRAM remainder) |
+| [firmware/src/frame.cpp](firmware/src/frame.cpp) | frame store (packet list in the IRAM remainder; on the FNK0115 in the PSRAM) |
 | [firmware/src/rescue.cpp](firmware/src/rescue.cpp) | rescue mode: home Wi-Fi or own access point |
 | [firmware/src/main.cpp](firmware/src/main.cpp) | start, loop, rescue mode switch, OTA |
 | [firmware/src/http.cpp](firmware/src/http.cpp) | HTTP server: routes, stream, status, update |
