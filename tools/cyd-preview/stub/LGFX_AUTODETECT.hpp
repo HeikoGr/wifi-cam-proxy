@@ -23,6 +23,11 @@ class LGFX : public lgfx::LGFX_Sprite {
   static const int FBS = 1;
   void beginFrame() {}
   void endFrame() {}
+  uint8_t **frameRows() {  // the canvas in the panel's orientation, as the frame buffer
+    static uint8_t *rows[PREVIEW_PANEL_H];
+    for (int y = 0; y < PREVIEW_PANEL_H; y++) rows[y] = (uint8_t *)getBuffer() + y * PREVIEW_PANEL_W * 2;
+    return rows;
+  }
   struct PanelStub {
     lgfx::IBus *getBus() { return nullptr; }
   };

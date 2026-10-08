@@ -90,7 +90,7 @@ static FrameReader reader;
 static int32_t jpgRead(JPEGFILE *f, uint8_t *buf, int32_t len) {
   if (len > f->iSize - f->iPos) len = f->iSize - f->iPos;
   if (len <= 0) return 0;
-  int32_t n = reader.read(f->iPos, buf, len);
+  int32_t n = static_cast<FrameReader *>(f->fHandle)->read(f->iPos, buf, len);
   f->iPos += n;
   return n;
 }
@@ -106,9 +106,55 @@ static bool dmaDraw = false;
 static std::atomic<uint32_t> spiUsSum{0};  // time in jpgDraw() and waiting for DMA, for [stats]
 static int zoomK = 1;  // enlargement of the decoded pixels (2x, 4x)
 
+#if CYD_PAGE_FLIP
+// Pixels straight into the hidden frame buffer, without LovyanGFX: two decoders write at
+// the same time. Turned as setRotation() turns LovyanGFX's drawing
+// (Panel_FrameBufferBase::drawPixelPreclipped) and cut to the visible part.
+static struct {
+  uint8_t **rows;     // frame buffer rows (panel orientation)
+  int rot, w, h;      // rotation and the display size in it
+  int x0, y0, x1, y1; // visible part
+  int ks;             // every pixel 1 << ks times (zoom 2x, 4x)
+} fb;
+
+static void putPixels(const JPEGDRAW *d) {
+  int ks = fb.ks, bx = d->x << ks, by = d->y << ks;
+  int xa = max(bx, fb.x0), xb = min(bx + (d->iWidth << ks), fb.x1);
+  if (xa >= xb) return;
+  for (int y = max(by, fb.y0), ye = min(by + (d->iHeight << ks), fb.y1); y < ye; y++) {
+    const uint16_t *src = d->pPixels + ((y - by) >> ks) * d->iWidth;
+    switch (fb.rot) {
+      case 0: {
+        uint16_t *p = (uint16_t *)fb.rows[y];
+        if (!ks) memcpy(p + xa, src + (xa - bx), (xb - xa) * sizeof(uint16_t));
+        else for (int x = xa; x < xb; x++) p[x] = src[(x - bx) >> ks];
+        break;
+      }
+      case 1: {
+        int px = fb.h - 1 - y;
+        for (int x = xa; x < xb; x++) ((uint16_t *)fb.rows[x])[px] = src[(x - bx) >> ks];
+        break;
+      }
+      case 2: {
+        uint16_t *p = (uint16_t *)fb.rows[fb.h - 1 - y] + fb.w - 1;
+        for (int x = xa; x < xb; x++) p[-x] = src[(x - bx) >> ks];
+        break;
+      }
+      case 3:
+        for (int x = xa; x < xb; x++) ((uint16_t *)fb.rows[fb.w - 1 - x])[y] = src[(x - bx) >> ks];
+        break;
+    }
+  }
+}
+#endif
 
 static int jpgDraw(JPEGDRAW *d) {
   uint32_t t0 = micros();
+#if CYD_PAGE_FLIP
+  putPixels(d);
+  spiUsSum += micros() - t0;
+  return 1;
+#endif
   if (zoomK > 1) {  // every pixel k times, per source row k display rows in one DMA transfer
     static uint16_t buf[2][4 * CYD_MAX_WIDTH];  // alternating: one is on its way while the next is built
     static int cur = 0;
@@ -170,6 +216,38 @@ static bool openJpeg() {
   return true;
 }
 
+#if CYD_PAGE_FLIP
+// Second decoder on core 0 for the lower rows (planSplit, include/jpeg_crop.h): the decode
+// takes ~400 ms for 800x440 of the MAX-VIEW's 720p on one core. Needs restart markers.
+static JPEGDEC *jpeg2 = nullptr;
+static FrameReader reader2;
+static TaskHandle_t decoder2 = nullptr;
+static struct {
+  int dx, dy, opt;
+  TaskHandle_t waiter;
+  bool ok;
+  uint32_t us;
+} job2;
+static float topShare = 0.5f;  // rows for core 1; core 0 also runs Wi-Fi
+static std::atomic<uint32_t> splitFrames{0};
+
+static bool openJpeg2() {
+  if (!jpeg2->open(&reader2, (int)reader2.size(), jpgClose, jpgRead, jpgSeek, jpgDraw)) return false;
+  jpeg2->setPixelType(RGB565_BIG_ENDIAN);
+  return true;
+}
+
+static void decoder2Task(void *) {
+  for (;;) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    uint32_t t0 = micros();
+    job2.ok = jpeg2->decode(job2.dx, job2.dy, job2.opt);
+    job2.us = micros() - t0;
+    xTaskNotifyGive(job2.waiter);
+  }
+}
+#endif
+
 static bool drawFrame(const Frame &f) {
   reader.reset(f);
   if (!openJpeg()) {
@@ -195,6 +273,14 @@ static bool drawFrame(const Frame &f) {
   }
   int dx = plan.dx, dy = plan.dy, opt = plan.opt, x = plan.x * k, y = plan.y * k, w = plan.w * k, h = plan.h * k;
   dmaDraw = opt & JPEG_USES_DMA;
+#if CYD_PAGE_FLIP
+  SplitPlan split = {};
+  if (decoder2) {
+    reader2.reset(f);
+    split = planSplit(*jpeg, plan, *jpeg2, reader2, topShare, [] { return openJpeg2(); });
+    if (!split.ok) reader2.release();
+  }
+#endif
 
   // Room for the overlay (top left in UI orientation): in the side border, in the top
   // border, or else a black strip of ovlStrip pixels that the image leaves out. The
@@ -244,7 +330,29 @@ static bool drawFrame(const Frame &f) {
   lcd.startWrite();
   if (clear) lcd.fillScreen(TFT_BLACK);
   lcd.setClipRect(x, y, w, h);  // do not paint edge blocks beyond the image
+#if CYD_PAGE_FLIP
+  fb = {lcd.frameRows(), rot, dw, dh, x, y, x + w, y + h, k == 4 ? 2 : k - 1};
+  if (split.ok) {
+    job2 = {split.dx, split.dy, split.opt, xTaskGetCurrentTaskHandle(), false, 0};
+    xTaskNotifyGive(decoder2);
+  }
+  uint32_t t0 = micros();
+  bool decoded = jpeg->decode(dx, dy, opt);
+  if (split.ok) {
+    uint32_t topUs = micros() - t0;
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    decoded &= job2.ok;
+    jpeg2->close();
+    reader2.release();
+    // Move the split so both cores take as long: share by the time per row of each
+    float top = (float)topUs / split.topRows, bot = (float)job2.us / split.botRows;
+    topShare = constrain(0.8f * topShare + 0.2f * bot / (top + bot), 0.2f, 0.8f);
+    splitFrames++;
+  }
+  if (!decoded) decodeErrors++;
+#else
   if (!jpeg->decode(dx, dy, opt)) decodeErrors++;
+#endif
   if (dmaDraw || zoomK > 1) {  // the last group may still be on its way
     uint32_t t0 = micros();
     lcd.waitDMA();
@@ -655,6 +763,12 @@ void setup() {
   // Internal RAM: with PSRAM, a large malloc() would land there
   void *mem = heap_caps_malloc(sizeof(JPEGDEC), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   jpeg = mem ? new (mem) JPEGDEC : nullptr;
+#if CYD_PAGE_FLIP
+  if (void *mem2 = heap_caps_malloc(sizeof(JPEGDEC), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)) {
+    jpeg2 = new (mem2) JPEGDEC;
+    xTaskCreatePinnedToCore(decoder2Task, "decoder2", 6144, nullptr, 1, &decoder2, 0);
+  }
+#endif
   if (!jpeg) {
     lcd.drawString("No memory for JPEG", 10, 10);
     for (;;) delay(1000);
@@ -696,6 +810,11 @@ void loop() {
                   drawn > lastDrawn ? (unsigned)(spiUsSum / 1000 / (drawn - lastDrawn)) : 0u,
                   (unsigned)drawMsMax, decodeErr - lastDecodeErr, (int)telemetry.battery, telemetry.charging == 1 ? " (charging?)" : "",
                   heapFree(), minNow, (unsigned)(stats.maxFrameBytes / 1024), cpuLoad(0), cpuLoad(1));
+#if CYD_PAGE_FLIP
+    Serial.printf("[stats] two cores %u of %u frames, core 1 decodes %d %% of the rows | PSRAM %u KB free\r\n",
+                  (unsigned)splitFrames.exchange(0), drawn - lastDrawn, (int)(topShare * 100),
+                  (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+#endif
     drawMsSum = 0;
     spiUsSum = 0;
     drawMsMax = 0;

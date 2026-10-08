@@ -120,3 +120,44 @@ DecodePlan planDecode(JPEGDEC &jpeg, FrameReader &reader, int dw, int dh, bool f
   p.y = (dh - p.h) / 2;
   return p;
 }
+
+// Split an unscaled plan between two decoders, for two cores: top (opened and planned by
+// planDecode) keeps the upper rows, bot decodes the rest from bReader, which skipAbove()
+// starts at a restart marker above the split. topShare: share of the rows for top (they
+// cost differently: the other core also runs Wi-Fi). bReader must hold the same frame;
+// bReopen() opens it in bot. Returns false if the JPEG has no restart markers there or the
+// visible part is too small; top is then unchanged.
+struct SplitPlan {
+  bool ok;
+  int dx, dy;  // position for bot.decode()
+  int opt;
+  int topRows, botRows;
+};
+
+template <class Reopen>
+SplitPlan planSplit(JPEGDEC &top, const DecodePlan &p, JPEGDEC &bot, FrameReader &bReader, float topShare,
+                    Reopen bReopen) {
+  SplitPlan s = {false, 0, 0, 0, 0, 0};
+  if (!p.ok || (p.opt & (JPEG_SCALE_HALF | JPEG_SCALE_QUARTER | JPEG_SCALE_EIGHTH))) return s;
+  int W = top.getWidth(), ax, ay, aw, ah;
+  top.getCropArea(&ax, &ay, &aw, &ah);  // ay counts from where top's reader starts
+  int mh = (top.getSubSample() & 15) == 2 ? 16 : 8;
+  int y0 = p.iy, y1 = p.iy + ah;  // visible rows in the image
+  int split = (y0 + (int)(topShare * ah)) / mh * mh;
+  if (split < y0 + 2 * mh) split = y0 + 2 * mh;
+  if (split > y1 - 2 * mh) split = y1 - 2 * mh;
+  if (split <= y0 || split >= y1) return s;
+  // skipAbove() starts one MCU row above; at the split that still gave single wrong pixels
+  // in its second row (host test, 1024x768 4:2:0 with a restart every row): start two above
+  int skipped = bReader.skipAbove(split - mh);
+  if (!skipped || !bReopen()) return s;
+  bot.setCropArea(ax, split - skipped, aw, y1 - split);
+  s.opt = fitGroups(bot, W, ax, split - skipped, aw, y1 - split, false);
+  top.setCropArea(ax, ay, aw, split - y0);
+  s.dx = p.dx;
+  s.dy = p.dy + split - y0;
+  s.topRows = split - y0;
+  s.botRows = y1 - split;
+  s.ok = true;
+  return s;
+}

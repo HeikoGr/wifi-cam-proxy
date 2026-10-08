@@ -58,6 +58,9 @@ class Panel_RGBFlip : public lgfx::Panel_FrameBufferBase {
     _lines_buffer = lines[back];
   }
 
+  // Rows of the buffer being drawn into, for writing pixels without LovyanGFX
+  uint8_t **rows() { return _lines_buffer; }
+
   void endFrame() {
     display(0, 0, 0, 0);
     // A pointer into one of the driver's buffers switches to it at the end of the refresh
@@ -89,6 +92,7 @@ class LGFX : public lgfx::LGFX_Device {
   static const int FBS = Panel_RGBFlip::FBS;
   void beginFrame() { panel.beginFrame(); }
   void endFrame() { panel.endFrame(); }
+  uint8_t **frameRows() { return panel.rows(); }
 
   LGFX() {
     {

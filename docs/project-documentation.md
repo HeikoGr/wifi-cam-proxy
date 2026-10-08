@@ -386,12 +386,32 @@ variant), Wi-Fi RSSI −26 to −49 dBm:
     driver picks the frame buffer per refresh and restarts the DMA only when a refill is
     missing: `CONFIG_LCD_RGB_RESTART_IN_VSYNC=n` (ESP-IDF's default; Arduino's `y` restarted
     every VSYNC through a link that on the ESP32-S3 always starts frame buffer 0).
+  - *Two cores:* core 0 decodes the lower rows with a second JPEGDEC (`planSplit` in
+    `jpeg_crop.h`, host test `jpeg_crop_test`, pixel-identical to one decode). It starts at a
+    restart marker two MCU rows above the split (one row gave single wrong pixels). The split
+    follows the time per row of each core (core 0 also runs Wi-Fi). Without restart markers one
+    core decodes. Both write the pixels straight into the hidden buffer (`putPixels`, turned as
+    LovyanGFX would), so no LovyanGFX call happens during the decode. Tried and dropped: the
+    copy by GDMA (`esp_async_memcpy`, one transaction per row, overlapped with decoding through
+    JPEGDEC's ping-pong buffers) took 590–650 ms per frame instead of 50–90 ms: the driver
+    allocates a DMA list, splits the destination at cache lines and invalidates them for every
+    transaction, and the rows of an MCU group are not contiguous in the frame buffer.
   - *Memory:* frame chunks in the PSRAM (`FRAME_CHUNKS_IN_PSRAM`): with 720p the frames held
     the internal heap at its reserve and the store gave up ~13 frames a second (`released`).
     Frames up to 192 KB (`MAX_FRAME_BYTES`): the MAX-VIEW's detailed frames reach 98 KB and
     were dropped at 96 KB (`too big` up to ~12 a second).
-    The JPEG decoder (~18 KB) stays in internal RAM. No IRAM chunks: the ESP32-S3 has no
+    The JPEG decoders (~18 KB each) stay in internal RAM. No IRAM chunks: the ESP32-S3 has no
     word-only IRAM remainder.
+  - *Measured* with the MAX-VIEW at 1:1 (800×440 of 1280×720), shown fps / draw time:
+
+    | | fps | draw | copy (`SPI`) |
+    |---|---|---|---|
+    | one core | 2.4 | ~400 ms | – |
+    | two cores, frames in the PSRAM | 3.4–5.8 | 110–290 ms | 50–90 ms |
+
+    With frames in the PSRAM `released` went to 0 (internal heap free 186 KB instead of
+    ~50 KB). `[stats]` adds a line with the frames decoded on
+    two cores, core 1's share of the rows and the free PSRAM.
 - **Overlay** (battery, fps): sits in the side border or in a 10 px strip (×`ui`) that the image
   leaves out at 1:1, and is only redrawn when its text changes (no flicker).
 - **No orientation correction:** removed. Arbitrary angles need a frame buffer, and in 90°

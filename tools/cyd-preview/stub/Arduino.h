@@ -18,5 +18,11 @@ static SerialCyd SerialCydStub;
 #define pdMS_TO_TICKS(ms) (ms)
 inline void vTaskDelay(int ms) { delay(ms); }
 inline int xTaskCreatePinnedToCore(void (*)(void *), const char *, int, void *, int, void *, int) { return 1; }
+typedef void *TaskHandle_t;
+#define pdTRUE 1
+#define portMAX_DELAY 0
+inline TaskHandle_t xTaskGetCurrentTaskHandle() { return nullptr; }
+inline uint32_t ulTaskNotifyTake(int, int) { return 1; }
+inline void xTaskNotifyGive(TaskHandle_t) {}
 inline void heap_caps_monitor_local_minimum_free_size_start() {}
 inline void heap_caps_monitor_local_minimum_free_size_stop() {}

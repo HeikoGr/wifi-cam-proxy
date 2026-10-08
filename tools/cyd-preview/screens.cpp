@@ -19,6 +19,7 @@ uint8_t *allocChunk(size_t len, size_t) { return (uint8_t *)malloc(len); }
 void copyToChunk(uint8_t *d, const uint8_t *s, size_t n) { memcpy(d, s, n); }
 void copyFromChunk(uint8_t *d, const uint8_t *c, size_t off, size_t n) { memcpy(d, c + off, n); }
 unsigned heapFree() { return 0; }
+size_t heapBudget = 0, heapBaseline = 0;  // esp_heap_caps.h stand-in
 unsigned heapMin() { return 0; }
 uint32_t getFrame(Frame &out) { return 0; }
 void crumb(const char *, ...) {}
