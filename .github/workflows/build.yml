@@ -40,12 +40,12 @@ jobs:
       # One job, boards in sequence: the ESP-IDF libs are rebuilt once and reused by the other boards.
       - name: Build
         working-directory: firmware
-        run: pio run -e zb-gw03 -e wt32-eth01 -e cyd
+        run: pio run -e zb-gw03 -e wt32-eth01 -e cyd -e fnk0115
 
       - name: Collect binaries
         run: |
           mkdir out
-          for env in zb-gw03 wt32-eth01 cyd; do
+          for env in zb-gw03 wt32-eth01 cyd fnk0115; do
             cp firmware/.pio/build/$env/firmware.bin out/$env-ota.bin
             cp firmware/.pio/build/$env/firmware.factory.bin out/$env-factory.bin
           done
