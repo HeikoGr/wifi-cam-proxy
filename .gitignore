@@ -1,6 +1,8 @@
 # PlatformIO build artefacts
 firmware/.pio/
 firmware/.dummy/
+# Written by pioarduino on every build (custom_sdkconfig, ESP-IDF configuration per env)
+firmware/sdkconfig.*
 
 # PlatformIO managed components (downloaded dependencies, like node_modules)
 firmware/managed_components/
