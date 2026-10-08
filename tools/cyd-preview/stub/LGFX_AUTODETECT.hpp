@@ -3,6 +3,11 @@
 // portrait); setRotation() turns it like the real display.
 #include <LovyanGFX.hpp>
 
+#ifndef PREVIEW_PANEL_W
+#define PREVIEW_PANEL_W 240
+#define PREVIEW_PANEL_H 320
+#endif
+
 namespace lgfx {
 struct Bus_SPI : IBus {  // only for the cast in setup(); getBus() returns no bus
   struct config_t {
@@ -15,12 +20,15 @@ struct Bus_SPI : IBus {  // only for the cast in setup(); getBus() returns no bu
 
 class LGFX : public lgfx::LGFX_Sprite {
  public:
+  static const int FBS = 1;
+  void beginFrame() {}
+  void endFrame() {}
   struct PanelStub {
     lgfx::IBus *getBus() { return nullptr; }
   };
   bool init() {
     setColorDepth(16);
-    return createSprite(240, 320);
+    return createSprite(PREVIEW_PANEL_W, PREVIEW_PANEL_H);
   }
   PanelStub *getPanel() { return &panel_; }
   void setBrightness(uint8_t) {}

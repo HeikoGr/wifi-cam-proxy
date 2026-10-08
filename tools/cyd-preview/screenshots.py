@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Screenshots of the CYD display for the documentation (docs/screenshots/cyd-*.png).
+Screenshots of the CYD display for the documentation (docs/screenshots/cyd-*.png), or
+of the Freenove FNK0115 with --board fnk0115 (docs/screenshots/fnk0115-*.png).
 
 The screens are drawn by the real display code (firmware/src/main_cyd.cpp) compiled for
 the host, into an in-memory canvas instead of the panel (screens.cpp, build.sh): live
 image at 1:1 and "fit", menu, camera choice, waiting screen.
 
-    python3 tools/cyd-preview/screenshots.py [--image SOURCE] [--rotation DEG] [--battery PCT]
+    python3 tools/cyd-preview/screenshots.py [--board cyd|fnk0115] [--image SOURCE] [--rotation DEG] [--battery PCT]
 
 The picture is the current one of the device (http://wifi-cam.local/snapshot) with that
 camera's rotation, battery and LED from /cameras.json when it is reachable, otherwise the
@@ -26,7 +27,7 @@ ROOT = HERE.parents[1]
 OUT = ROOT / "docs" / "screenshots"
 BUILD = ROOT / "firmware" / ".pio" / "cyd-preview"  # object files are kept between runs
 DEVICE = "http://wifi-cam.local"
-SCALE = 2  # 320x240 is tiny on a web page: double it, pixel for pixel
+SCALE = {"cyd": 2, "fnk0115": 1}  # 320x240 is tiny on a web page: double it, pixel for pixel
 
 
 def device_camera():
@@ -46,6 +47,7 @@ def device_camera():
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--board", choices=SCALE, default="cyd")
     ap.add_argument("--image", help="JPEG file or URL instead of the device's picture")
     ap.add_argument("--rotation", type=int, help="image rotation of the camera model (otoscope: -90)")
     ap.add_argument("--battery", type=int, help="battery in %%")
@@ -73,18 +75,19 @@ def main():
     if args.battery is not None:
         battery = args.battery
 
-    subprocess.run([str(HERE / "build.sh"), str(BUILD)], check=True)
+    subprocess.run([str(HERE / "build.sh"), str(BUILD), args.board], check=True)
     frame = BUILD / "frame.jpg"
     frame.write_bytes(jpg)
-    res = subprocess.run([str(BUILD / "screens"), str(frame), str(rotation), str(battery), ssid, led, str(BUILD)],
+    res = subprocess.run([str(BUILD / f"screens-{args.board}"), str(frame), str(rotation), str(battery), ssid, led, str(BUILD)],
                          check=True, capture_output=True, text=True)
     OUT.mkdir(parents=True, exist_ok=True)
     for line in res.stdout.splitlines():
         if not line.endswith(".ppm"):
             continue
         img = Image.open(line)
-        name = Path(line).with_suffix(".png").name
-        img.resize((img.width * SCALE, img.height * SCALE), Image.NEAREST).save(OUT / name)
+        name = f"{args.board}-{Path(line).stem}.png"
+        scale = SCALE[args.board]
+        img.resize((img.width * scale, img.height * scale), Image.NEAREST).save(OUT / name)
         print("  ", name)
 
 

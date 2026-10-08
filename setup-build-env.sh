@@ -85,7 +85,7 @@ fi
 
 # --- 9. Optional: build all boards ----------------------------------------------
 if [[ $BUILD -eq 1 ]]; then
-  for env in zb-gw03 wt32-eth01 cyd; do
+  for env in zb-gw03 wt32-eth01 cyd fnk0115; do
     info "Building $env"
     (cd "$FW" && "$PIO" run -e "$env")
   done

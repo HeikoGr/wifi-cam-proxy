@@ -44,22 +44,47 @@
 //   -DBOARD_ZB_GW03      (default)
 //   -DBOARD_WT32_ETH01
 //   -DBOARD_CYD
+//   -DBOARD_FNK0115
 // ================================================================================
 
-#if defined(BOARD_CYD)
-// --- CYD ESP32-2432S028R: display instead of Ethernet (src/main_cyd.cpp) -------------
-// Display (HSPI 13/12/14, DC 2, CS 15, backlight 21) and touch (XPT2046 25/32/39/33)
-// are configured by LovyanGFX itself, including ILI9341/ST7789 detection.
+#if defined(BOARD_CYD) || defined(BOARD_FNK0115)
+// --- Display boards: camera image on the display instead of Ethernet (src/main_cyd.cpp)
 #define LED_GREEN_GPIO     -1
 #define LED_RED_GPIO       -1
 #define ZIGBEE_NRST_GPIO   -1
-#define CYD_RGB_LED_PINS   {4, 16, 17}     // RGB LED, active LOW: switched off at startup
-#define CYD_UI_ROT         1               // landscape 320x240 for menus and touch
-#define CYD_MAX_WIDTH      320
 // Direction of setRotation() that turns the image by +90° (clockwise): +1 or -1. The
 // rotation per camera model comes from cameraImageRotation() (otoscope: -90°).
 #define CYD_ROTATE_DIR     1
 #define CYD_MENU_TIMEOUT_MS 15000          // menu closes by itself
+// Core of the display task (decode + draw). Core 0 also runs the Wi-Fi driver and lwIP
+// (their interrupts and high-priority tasks interrupt the decoder); core 1 only the
+// light video task and loop().
+#define CYD_DISPLAY_CORE   1
+
+#if defined(BOARD_FNK0115)
+// --- Freenove ESP32-S3 Display FNK0115, 800x480 IPS (ESP32-S3 N16R8) ------------------
+// Display, touch and backlight: include/lgfx_fnk0115.h
+#define CYD_BOARD_NAME     "FNK0115"
+#define CYD_UI_ROT         0               // landscape is the panel's own orientation
+#define CYD_MAX_WIDTH      800
+// The panel shows frame buffers in PSRAM: JPEGDEC's pixels are copied there, there is
+// no transfer to overlap with decoding
+#define CYD_USE_DMA        0
+// Live frames go into a hidden frame buffer that is shown whole: no tearing
+#define CYD_PAGE_FLIP      1
+// Pixel clock of the RGB panel (Freenove: 13 MHz). The panel reads the frame buffer
+// from the PSRAM all the time; if the image drifts or flickers, go lower.
+#define FNK_PCLK_HZ        13000000
+// IRAM and DRAM are one memory on the ESP32-S3: no word-only remainder to use
+#define USE_IRAM_CHUNKS    0
+#else
+// --- CYD ESP32-2432S028R ----------------------------------------------------------
+// Display (HSPI 13/12/14, DC 2, CS 15, backlight 21) and touch (XPT2046 25/32/39/33)
+// are configured by LovyanGFX itself, including ILI9341/ST7789 detection.
+#define CYD_BOARD_NAME     "CYD"
+#define CYD_UI_ROT         1               // landscape 320x240 for menus and touch
+#define CYD_MAX_WIDTH      320
+#define CYD_RGB_LED_PINS   {4, 16, 17}     // RGB LED, active LOW: switched off at startup
 // Display SPI clock: shorter write per frame = less visible tearing. Autodetect uses
 // 40 MHz for the ILI9341 variant. The ESP32 only divides 80 MHz (80, 40, 26.7, ...);
 // if the image is garbled or has wrong colours, go back to 40000000.
@@ -68,10 +93,8 @@
 // one half by DMA while the next MCU group is decoded (include/jpeg_crop.h). 0 = blocking
 // transfer as before.
 #define CYD_USE_DMA        1
-// Core of the display task (decode + draw). Core 0 also runs the Wi-Fi driver and lwIP
-// (their interrupts and high-priority tasks interrupt the decoder); core 1 only the
-// light video task and loop().
-#define CYD_DISPLAY_CORE   1
+#define CYD_PAGE_FLIP      0
+#endif
 // The display holds one frame while it decodes it (~140 ms), the next one is built
 // meanwhile. With the 720p MAX-VIEW (33-98 KB per frame) both together left the Wi-Fi
 // driver too little: its receive buffers (up to 32 x 1.6 KB) failed, heap down to 224

@@ -367,8 +367,26 @@ variant), Wi-Fi RSSI −26 to −49 dBm:
   from `lcd.width()`/`lcd.height()`; nothing assumes 320×240. A larger display gets larger
   menu buttons and more networks in the camera choice (up to 8); from 640 px width texts,
   gaps and the overlay are twice as large (`ui`). Another board needs its own `BOARD_*` block
-  in `config.h` and LovyanGFX setup (the autodetect is limited to the CYD variants). Limit: in
-  "fit" JPEGDEC scales only by 1, ½, ¼ or ⅛.
+  in `config.h` and LovyanGFX setup (the autodetect is limited to the CYD variants; the
+  FNK0115 has its own in `lgfx_fnk0115.h`). Limit: in "fit" JPEGDEC scales only by 1, ½, ¼ or ⅛.
+- **FNK0115 (ESP32-S3, 800×480 RGB panel):** the panel shows frame buffers in the 8 MB octal
+  PSRAM, so JPEGDEC's pixels are copied into memory instead of sent over SPI (`CYD_USE_DMA` 0).
+  - *Three frame buffers* (`CYD_PAGE_FLIP`): with LovyanGFX's RGB driver (one buffer, decoded
+    into while shown) the tearing was very visible on the large display, and pixels still in
+    the CPU's cache showed as false colours at edges. `lgfx_fnk0115.h` puts LovyanGFX's frame
+    buffer drawing on ESP-IDF's RGB driver with three buffers: a live frame is drawn whole,
+    overlay included, into a hidden buffer and shown from the next refresh on. A buffer is
+    drawn into again only two VSYNCs after it was replaced. Menus and status screens draw into
+    the shown buffer.
+  - *Bounce buffers:* the panel's DMA read the frame buffer straight from the PSRAM; with the
+    decoding writing into it, it fell behind every few seconds, the panel went black for ~0.5 s
+    and came back shifted. Now it reads two 16 KB bounce buffers in internal RAM that the
+    driver refills from the PSRAM (CPU copy through the cache, so no cache write-back). The
+    driver picks the frame buffer per refresh and restarts the DMA only when a refill is
+    missing: `CONFIG_LCD_RGB_RESTART_IN_VSYNC=n` (ESP-IDF's default; Arduino's `y` restarted
+    every VSYNC through a link that on the ESP32-S3 always starts frame buffer 0).
+  - *Memory:* the JPEG decoder (~18 KB) stays in internal RAM (with PSRAM a large `malloc()`
+    would put it there). No IRAM chunks: the ESP32-S3 has no word-only IRAM remainder.
 - **Overlay** (battery, fps): sits in the side border or in a 10 px strip (×`ui`) that the image
   leaves out at 1:1, and is only redrawn when its text changes (no flicker).
 - **No orientation correction:** removed. Arbitrary angles need a frame buffer, and in 90°
@@ -459,6 +477,7 @@ Board selection via `build_flags` in `platformio.ini`:
 - `-DBOARD_ZB_GW03` (default, 10 Mbit limit)
 - `-DBOARD_WT32_ETH01` (100 Mbit, no Zigbee)
 - `-DBOARD_CYD` (display instead of Ethernet)
+- `-DBOARD_FNK0115` (Freenove ESP32-S3 Display, 800×480, display instead of Ethernet)
 
 Important constants:
 
@@ -471,6 +490,7 @@ Important constants:
 | `WIFI_MODE_DEFAULT` | `"bg"` | Wi-Fi mode without 11n (every packet on its own) |
 | `MAX_FRAME_BYTES` / `FRAME_RESERVE_FROM` / `FRAME_HEAP_RESERVE` | 96 / 48 / 40 KB (CYD: 48 KB) | largest frame; beyond 48 KB only while 40 KB heap remain free |
 | `FRAME_HEAP_FLOOR` | 16 KB (CYD: 48 KB) | no frame chunk from the heap below this, whatever the frame size |
+| `CYD_PAGE_FLIP` / `FNK_PCLK_HZ` | FNK0115 | three frame buffers, live frames shown whole / pixel clock of the RGB panel (13 MHz) |
 | `STREAM_MAX_FPS` | 5 on the ZB-GW03 (10 still stuttered), else 0 (unlimited) | default of the frame rate limit per viewer (changeable under `/settings`, NVS `stream_fps`); the newest frame is sent, the ones in between are skipped. The 720p MAX-VIEW (~22 fps, 33–84 KB) needs 6–15 Mbit/s, more than the 10 Mbit Ethernet of the ZB-GW03 carries |
 
 ### 6.2 Runtime (NVS, namespace `wifi-cam`)
@@ -547,8 +567,9 @@ pio run -e zb-gw03-http -t upload
 # OTA via espota (ArduinoOTA)
 pio run -e zb-gw03-ota -t upload
 
-# CYD (USB, auto-reset)
+# CYD, FNK0115 (USB, auto-reset)
 pio run -e cyd -t upload
+pio run -e fnk0115 -t upload
 
 # Serial monitor
 pio device monitor
@@ -581,6 +602,7 @@ in `platformio.ini`.
 | ZB-GW03 v1.4 | GPIO17 OUT (internal) | **10 Mbit** (Wi-Fi limit) | active LOW | EFR32, disabled |
 | WT32-ETH01 | GPIO0 IN (external) | 100 Mbit | active HIGH | none |
 | CYD ESP32-2432S028R | – | no Ethernet (display) | RGB LED switched off | none |
+| Freenove FNK0115 (ESP32-S3, 800×480 IPS) | – | no Ethernet (display) | none | none |
 
 For new hardware: WT32-ETH01 recommended (~8 €, no 10 Mbit limit).
 For further boards: a new section in `config.h` and a new `[env:...]` in `platformio.ini`.

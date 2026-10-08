@@ -1,6 +1,6 @@
-# Firmware: WiFi-Cam-Proxy on ZB-GW03 v1.4 / WT32-ETH01 (and CYD)
+# Firmware: WiFi-Cam-Proxy on ZB-GW03 v1.4 / WT32-ETH01 (and CYD, FNK0115)
 
-The ZB-GW03 (ESP32 + LAN8720, originally a Zigbee gateway) connects to a camera via Wi-Fi and delivers the image into the home network over Ethernet. The camera is recognised by its Wi-Fi name, see [Cameras](#cameras). For otoscopes with an orientation sensor, the browser offers an orientation correction that rotates the image along when the probe is turned. The CYD variant shows the image on its own display instead (`src/main_cyd.cpp`, see the [project README](../README.md)).
+The ZB-GW03 (ESP32 + LAN8720, originally a Zigbee gateway) connects to a camera via Wi-Fi and delivers the image into the home network over Ethernet. The camera is recognised by its Wi-Fi name, see [Cameras](#cameras). For otoscopes with an orientation sensor, the browser offers an orientation correction that rotates the image along when the probe is turned. The CYD and FNK0115 variants show the image on their own display instead (`src/main_cyd.cpp`, see the [project README](../README.md)).
 
 As of 2026-09-30: stable at 17 fps, also with a viewer. Dropouts only occur when the probe's Wi-Fi signal gets weak (from about −70 dBm).
 

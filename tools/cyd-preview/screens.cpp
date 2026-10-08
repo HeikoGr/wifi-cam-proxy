@@ -55,7 +55,7 @@ CamProto protoChoice(int i) { return i == 1 ? CamProto::I4season : i == 2 ? CamP
 // --- Screens ---------------------------------------------------------------------------
 static std::string outDir;
 
-static void save(const char *name) {  // in UI orientation (320x240)
+static void save(const char *name) {  // in UI orientation (CYD: 320x240)
   lcd.setRotation(CYD_UI_ROT);
   int w = lcd.width(), h = lcd.height();
   std::string path = outDir + "/" + name + ".ppm";
@@ -127,14 +127,14 @@ int main(int argc, char **argv) {
   lcd.setRotation(CYD_UI_ROT);
   scaleUi();
   jpeg = new JPEGDEC;
-  live(f, true, "cyd-live");
-  live(f, false, "cyd-live-fit");
+  live(f, true, "live");
+  live(f, false, "live-fit");
   zoomLevel = Z_1TO1;  // the default
   showMenu();
-  save("cyd-menu");
+  save("menu");
   showChoose();
-  save("cyd-cameras");
+  save("cameras");
   drawStatus("Looking for camera...");
-  save("cyd-waiting");
+  save("waiting");
   return 0;
 }

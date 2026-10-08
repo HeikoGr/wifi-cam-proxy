@@ -1,9 +1,10 @@
 /*
- * WiFi-Cam-Viewer for the CYD "Cheap Yellow Display" (ESP32-2432S028R)
+ * WiFi-Cam-Viewer for the CYD "Cheap Yellow Display" (ESP32-2432S028R) and the
+ * Freenove ESP32-S3 Display FNK0115 (800x480)
  *
- * Instead of Ethernet and a web server, the CYD shows the camera image directly on
- * its 320x240 display. Camera detection, protocols and frame store are the same as
- * in the Ethernet bridge (camera.cpp, cam_*.cpp, frame.cpp).
+ * Instead of Ethernet and a web server, the board shows the camera image directly on
+ * its display (CYD: 320x240). Camera detection, protocols and frame store are the same
+ * as in the Ethernet bridge (camera.cpp, cam_*.cpp, frame.cpp).
  *
  *   Video task (core 1, prio 10)    receives and assembles JPEGs (as before)
  *   Display task (core 1, prio 1)   always decodes the newest frame and shows it
@@ -25,11 +26,16 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <esp_heap_caps.h>
 #include <esp_wifi.h>
 
+#if defined(BOARD_FNK0115)
+#include "lgfx_fnk0115.h"
+#else
 #define LGFX_ESP32_2432S028  // detect only the CYD variants, not all boards
 #include <LovyanGFX.hpp>
 #include <LGFX_AUTODETECT.hpp>
+#endif
 #include <JPEGDEC.h>
 
 #include "camera.h"
@@ -40,7 +46,7 @@
 #include "jpeg_reader.h"
 #include "settings.h"
 
-// Expected by camera.cpp. The CYD has no rescue mode and no OTA.
+// Expected by camera.cpp. The display boards have no rescue mode and no OTA.
 volatile bool rescueMode = false;
 std::atomic<bool> updating{false};
 
@@ -151,6 +157,12 @@ static std::atomic<uint32_t> decodeErrors{0};  // JPEGDEC stopped midway: rest o
 static uint32_t lastFrameAt = 0;  // for the "no signal" hint
 static float shownFps = 0;
 static char statusShown[64] = "";
+#if CYD_PAGE_FLIP
+// Each frame buffer keeps what was drawn into it: a new geometry clears them one by one
+static int buffersToClear = 0;
+#endif
+
+static void drawOverlay();
 
 static bool openJpeg() {
   if (!jpeg->open(&reader, (int)reader.size(), jpgClose, jpgRead, jpgSeek, jpgDraw)) return false;
@@ -213,9 +225,8 @@ static bool drawFrame(const Frame &f) {
                   ZOOM_NAMES[zoomLevel], dx, dy, x, y, w, h);
   }
 
-  lcd.startWrite();
-  if (x != lastX || y != lastY || w != lastW || h != lastH || rot != lastRot) {
-    lcd.fillScreen(TFT_BLACK);  // geometry changed -> clear the border
+  bool clear = x != lastX || y != lastY || w != lastW || h != lastH || rot != lastRot;
+  if (clear) {  // geometry changed -> clear the border
     lastX = x;
     lastY = y;
     lastW = w;
@@ -224,6 +235,14 @@ static bool drawFrame(const Frame &f) {
     statusShown[0] = 0;
     overlayShown[0] = 0;
   }
+#if CYD_PAGE_FLIP
+  if (clear) buffersToClear = LGFX::FBS;
+  clear = buffersToClear > 0;
+  if (clear) buffersToClear--;
+  lcd.beginFrame();
+#endif
+  lcd.startWrite();
+  if (clear) lcd.fillScreen(TFT_BLACK);
   lcd.setClipRect(x, y, w, h);  // do not paint edge blocks beyond the image
   if (!jpeg->decode(dx, dy, opt)) decodeErrors++;
   if (dmaDraw || zoomK > 1) {  // the last group may still be on its way
@@ -236,6 +255,11 @@ static bool drawFrame(const Frame &f) {
   jpeg->close();
   lcd.setRotation(CYD_UI_ROT);
   reader.release();
+#if CYD_PAGE_FLIP
+  overlayShown[0] = 0;  // the hidden buffer has an older frame's overlay
+  drawOverlay();
+  lcd.endFrame();
+#endif
   return true;
 }
 
@@ -595,20 +619,26 @@ static void onNetworkEvent(arduino_event_id_t event, arduino_event_info_t info) 
 }
 
 void setup() {
+#ifdef CYD_RGB_LED_PINS
   static const int rgb[] = CYD_RGB_LED_PINS;
   for (int pin : rgb) {  // RGB LED off (active LOW)
     pinMode(pin, OUTPUT);
     digitalWrite(pin, HIGH);
   }
+#endif
   Serial.begin(115200);
   crashlogInit();
 #ifndef GIT_REV
 #define GIT_REV "unknown"  // set by git_rev.py
 #endif
-  Serial.println("\r\n[boot] WiFi-Cam-Viewer (CYD) " GIT_REV);
+  Serial.println("\r\n[boot] WiFi-Cam-Viewer (" CYD_BOARD_NAME ") " GIT_REV);
 
   loadSettings();
-  lcd.init();
+  if (!lcd.init()) {  // RGB panel: no frame buffer without PSRAM
+    Serial.println("[lcd] init failed (no PSRAM?)");
+    for (;;) delay(1000);
+  }
+#ifdef CYD_SPI_WRITE_HZ
   if (auto bus = lcd.getPanel()->getBus(); bus && bus->busType() == lgfx::bus_type_t::bus_spi) {
     auto spi = static_cast<lgfx::Bus_SPI *>(bus);
     auto cfg = spi->config();
@@ -617,11 +647,14 @@ void setup() {
     cfg.freq_write = CYD_SPI_WRITE_HZ;
     spi->config(cfg);  // takes effect with the next transaction
   }
+#endif
   lcd.setRotation(CYD_UI_ROT);
   lcd.setBrightness(brightness);
   lcd.fillScreen(TFT_BLACK);
   scaleUi();
-  jpeg = new (std::nothrow) JPEGDEC;
+  // Internal RAM: with PSRAM, a large malloc() would land there
+  void *mem = heap_caps_malloc(sizeof(JPEGDEC), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  jpeg = mem ? new (mem) JPEGDEC : nullptr;
   if (!jpeg) {
     lcd.drawString("No memory for JPEG", 10, 10);
     for (;;) delay(1000);
