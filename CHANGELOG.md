@@ -15,6 +15,9 @@ Entries up to the first build were reconstructed from the commit history.
 - CYD: zoom levels fit, 1:1, 2x, 4x and a freeze (still image) button in the menu; the camera's zoom and photo buttons control them.
 - CYD: the info line labels the battery and shows the zoom level and the LED state.
 
+### Changed
+- FNK0115: the info line lies on top of the image; at 1:1 a 720p image fills all 480 rows instead of 440.
+
 ## build-6-1ddc315 - 2026-10-02
 
 ### Added

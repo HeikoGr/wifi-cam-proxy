@@ -417,7 +417,9 @@ variant), Wi-Fi RSSI −26 to −49 dBm:
     ~50 KB; 110 KB with the larger caches). `[stats]` adds a line with the frames decoded on
     two cores, core 1's share of the rows and the free PSRAM.
 - **Overlay** (battery, fps): sits in the side border or in a 10 px strip (×`ui`) that the image
-  leaves out at 1:1, and is only redrawn when its text changes (no flicker).
+  leaves out at 1:1, and is only redrawn when its text changes (no flicker). With page flip
+  (FNK0115) each live frame is drawn whole with its overlay, so instead of the strip it lies
+  on top of the image in a box behind the text: at 1:1 the image keeps all 480 rows.
 - **No orientation correction:** removed. Arbitrary angles need a frame buffer, and in 90°
   steps the image kept jumping in the hand. Only the fixed rotation of the camera model remains
   (otoscope −90°), rounded to quarter turns.

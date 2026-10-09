@@ -196,6 +196,7 @@ static int lastX = 0, lastY = 0, lastW = 0, lastH = 0, lastRot = -1;  // image g
 static int ovlSideW = 38;  // overlay in the side border: needs this much width (x ui)
 static int ovlStrip = 10;  // otherwise a strip this high above the image (x ui)
 static bool overlaySide = false;
+static bool overlayOver = false;  // on top of the image instead of in a strip it leaves out
 static char overlayShown[72] = "";  // last drawn overlay text
 static uint32_t drawnFrames = 0;
 static std::atomic<uint32_t> drawMsSum{0}, drawMsMax{0};  // decode + SPI time, for [stats]
@@ -208,7 +209,7 @@ static char statusShown[64] = "";
 static int buffersToClear = 0;
 #endif
 
-static void drawOverlay();
+static void drawOverlay(bool fresh = false);
 
 static bool openJpeg() {
   if (!jpeg->open(&reader, (int)reader.size(), jpgClose, jpgRead, jpgSeek, jpgDraw)) return false;
@@ -290,7 +291,10 @@ static bool drawFrame(const Frame &f) {
   int uiW = turn & 1 ? dh : dw, uiH = turn & 1 ? dw : dh;  // display in UI orientation
   int imgW = turn & 1 ? h : w, imgH = turn & 1 ? w : h;    // image in UI orientation
   overlaySide = (uiW - imgW) / 2 >= ovlSideW;
-  if (!overlaySide && (uiH - imgH) / 2 < ovlStrip) {
+  // With page flip every frame is drawn whole, overlay included: it can lie on top of the
+  // image, which keeps its full height
+  overlayOver = CYD_PAGE_FLIP && !overlaySide && (uiH - imgH) / 2 < ovlStrip;
+  if (!overlaySide && !overlayOver && (uiH - imgH) / 2 < ovlStrip) {
     if (turn & 1) {
       int x1 = min(x + w, dw - ovlStrip);
       x = max(x, ovlStrip);
@@ -365,7 +369,7 @@ static bool drawFrame(const Frame &f) {
   reader.release();
 #if CYD_PAGE_FLIP
   overlayShown[0] = 0;  // the hidden buffer has an older frame's overlay
-  drawOverlay();
+  drawOverlay(true);
   lcd.endFrame();
 #endif
   return true;
@@ -376,7 +380,8 @@ static bool drawFrame(const Frame &f) {
 // the text changes (no flicker).
 // Items: battery, fps, zoom, LED (only what the camera reports). Side border: short
 // labels, one per line; strip: one line with the full labels.
-static void drawOverlay() {
+// fresh: drawn on a new frame (no older overlay underneath)
+static void drawOverlay(bool fresh) {
   const bool side = overlaySide;
   char item[4][16] = {"", "", "", ""};
   char shown[72];
@@ -398,8 +403,17 @@ static void drawOverlay() {
   lcd.setTextSize(ui);
   lcd.setTextDatum(top_left);
   lcd.setTextPadding(0);
-  lcd.fillRect(0, 0, side ? ovlSideW : lcd.width(), side ? 44 * ui : ovlStrip, TFT_BLACK);
   int x = 2 * ui, y = side ? 2 * ui : ui;
+  if (overlayOver) {  // a box behind the text, over an older overlay at least as wide as that
+    static int boxW = 0;
+    int w = x - 6 * ui;
+    for (auto &it : item)
+      if (it[0]) w += lcd.textWidth(it) + 8 * ui;
+    lcd.fillRect(0, 0, fresh ? w : max(w, boxW), ovlStrip, TFT_BLACK);
+    boxW = w;
+  } else {
+    lcd.fillRect(0, 0, side ? ovlSideW : lcd.width(), side ? 44 * ui : ovlStrip, TFT_BLACK);
+  }
   for (int i = 0; i < 4; i++) {
     if (!item[i][0]) continue;
     lcd.setTextColor(i == 1 && stale ? TFT_RED : i == 1 && frozen ? TFT_YELLOW : TFT_LIGHTGREY, TFT_BLACK);

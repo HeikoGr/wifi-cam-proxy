@@ -3,5 +3,6 @@
     "C_Cpp.default.compileCommands": "${workspaceFolder}/firmware/compile_commands.json",
     "cmake.configureOnOpen": false,
     "tasks.statusbar.limit": 4,
-    "tasks.statusbar.select.label": "$(list-unordered) More"
+    "tasks.statusbar.select.label": "$(list-unordered) More",
+    "cmake.sourceDirectory": "/home/develop/wifi-cam-proxy/firmware/.dummy"
 }

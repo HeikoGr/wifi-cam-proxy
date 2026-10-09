@@ -148,7 +148,8 @@ address 0x0 with a web serial flasher (e.g. esptool-js).
 The [Freenove ESP32-S3 Display](https://github.com/Freenove/Freenove_ESP32_S3_Display_FNK0115)
 with the 800×480 IPS panel (FNK0115Q 5.0", FNK0115L 4.3") runs the same display code as the CYD:
 `pio run -e fnk0115 -t upload` (USB, CH340 with auto-reset). Texts and buttons are twice as
-large, and at 1:1 the 480×480 otoscope image fits whole. The board has an ESP32-S3
+large, at 1:1 the 480×480 otoscope image fits whole, and a 720p image fills the screen (the
+info line lies on top of it). The board has an ESP32-S3
 (N16R8: 16 MB flash, 8 MB octal PSRAM; the schematic says N8R2). The panel shows one of three
 frame buffers in the PSRAM and each live frame whole (no tearing); both cores decode, and the
 frames are kept in the PSRAM. With the 720p MAX-VIEW at 1:1 (800×440 visible) it shows about
