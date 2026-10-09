@@ -35,3 +35,5 @@ Thumbs.db
 
 # CMake Tools build directory (VS Code)
 /build/
+firmware/CMakeLists.txt
+firmware/dependencies.lock
