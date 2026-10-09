@@ -16,6 +16,16 @@ env:
 
 jobs:
   build:
+    # pioarduino keeps one custom ESP-IDF build in ~/.platformio and rebuilds it (~5 min) when
+    # the chip changes or firmware/sdkconfig.defaults (its hash of custom_sdkconfig) is missing.
+    # One job and cache per chip, with that file cached too, so a cached build is reused.
+    strategy:
+      matrix:
+        include:
+          - chip: esp32
+            envs: zb-gw03 wt32-eth01 cyd
+          - chip: esp32s3
+            envs: fnk0115
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
@@ -28,31 +38,32 @@ jobs:
 
       - uses: actions/cache@v6
         with:
-          path: ~/.platformio
-          key: pio-${{ hashFiles('firmware/platformio.ini', 'firmware/sdkconfig.*') }}
-          restore-keys: pio-
+          path: |
+            ~/.platformio
+            firmware/sdkconfig.defaults
+          key: pio-${{ matrix.chip }}-${{ hashFiles('firmware/platformio.ini') }}
+          restore-keys: pio-${{ matrix.chip }}-
 
       - run: pip install platformio
 
       - name: Create secrets.h from template
         run: cp firmware/include/secrets.example.h firmware/include/secrets.h
 
-      # One job, boards in sequence: the ESP-IDF libs are rebuilt once and reused by the other boards.
       - name: Build
         working-directory: firmware
-        run: pio run -e zb-gw03 -e wt32-eth01 -e cyd -e fnk0115
+        run: pio run $(printf -- '-e %s ' ${{ matrix.envs }})
 
       - name: Collect binaries
         run: |
           mkdir out
-          for env in zb-gw03 wt32-eth01 cyd fnk0115; do
+          for env in ${{ matrix.envs }}; do
             cp firmware/.pio/build/$env/firmware.bin out/$env-ota.bin
             cp firmware/.pio/build/$env/firmware.factory.bin out/$env-factory.bin
           done
 
       - uses: actions/upload-artifact@v7
         with:
-          name: firmware-all
+          name: firmware-${{ matrix.chip }}
           path: out/*.bin
           retention-days: 14
 
